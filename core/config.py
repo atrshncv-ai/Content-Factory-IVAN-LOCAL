@@ -29,6 +29,8 @@ class Settings(BaseSettings):
         webhook_port: Порт Webhook-приёмника.
         evaluator_max_retries: Safety Valve микро-Ralph Loop Контролёра Качества.
         autopost_command: Команда CLI-утилиты автопостинга (SMM-Паблишер).
+        comfyui_command: Команда cli-anything-comfyui (отправка на Node 1).
+        content_niche: Тематика контента для Парсера/Оркестратора.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -57,3 +59,5 @@ class Settings(BaseSettings):
     evaluator_max_retries: int = 3
 
     autopost_command: str = "autopost"
+    comfyui_command: str = "cli-anything-comfyui"
+    content_niche: str = "ai"

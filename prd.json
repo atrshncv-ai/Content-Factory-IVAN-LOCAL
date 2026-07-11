@@ -1,6 +1,6 @@
 {
   "project": "Autonomous Content Factory",
-  "status": "in_progress",
+  "status": "completed",
   "tasks": [
     {
       "id": "1",
@@ -42,7 +42,7 @@
       "id": "7",
       "phase": "Orchestration",
       "description": "Настройка Главного Оркестратора через Hermes Kanban (или аналог) для управления воркерами по Cron/Webhooks",
-      "passes": false
+      "passes": true
     }
   ]
 }

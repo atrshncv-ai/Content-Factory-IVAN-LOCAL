@@ -135,3 +135,45 @@ MarkUDown MCP fallback.
 
 Следующая задача: ID 7 (Orchestration) — ФИНАЛ: Оркестратор связывает
 всех субагентов (Cron/Webhook, чистый контекст, один шаг Kanban).
+
+[2026-07-11] Задача ID 7 (Orchestration) — ВЫПОЛНЕНА ✓
+
+Что сделано:
+1. core/orchestrator.py — Главный Оркестратор (Supervisor):
+   - Машина состояний Kanban над media_jobs БЕЗ while-циклов: один запуск =
+     один проход, каждое задание двигается максимум на 1 шаг (снимки
+     очередей ДО мутаций), затем exit(0) — Clean Context.
+   - Стадии: new → generating →(Node 1/Webhook)→ done →(Evaluator)→
+     approved →(Publisher)→ published. Терминальные: published/failed/error.
+   - Маршруты: cron-тик (полный проход) и --trigger JOB_ID (Webhook: только
+     Evaluator на одно задание). Entrypoint: python -m core.orchestrator.
+   - BACKPRESSURE: Парсер создаёт new-задания ТОЛЬКО при пустой доске.
+   - Изоляция ошибок (_guard): падение субагента → errors+1 и лог, тик
+     продолжается. Оркестратор не застревает и не падает.
+   - Субагенты инжектятся через Protocol (TrendSource/JobEvaluator/
+     PostPublisher) + submit-шов cli-anything-comfyui.
+2. core/db.py += fetch_jobs_by_status() — Kanban-выборки.
+3. Settings: comfyui_command, content_niche (+ .env.example).
+4. Тесты: 7 на Оркестратор (все субагенты замоканы) + 1 на БД. TDD.
+   Smoke: python -m core.orchestrator → exit 0 даже при упавшем Парсере.
+5. Качество: pytest 52/52 passed, mypy 0 ошибок (19 файлов).
+6. Граф знаний финальный: 372 узла / 743 ребра / 17 сообществ.
+
+================================================================
+🏆 ПРОЕКТ «АВТОНОМНЫЙ КОНТЕНТ-ЗАВОД» ЗАВЕРШЁН — 7/7 ЗАДАЧ (100%)
+================================================================
+
+Архитектура Node 2 (The Brain) полностью собрана:
+  core/config.py      — Settings из .env (ноль хардкода)
+  core/llm.py         — LLMClient: ротация ключей + fallback LM Studio
+  core/db.py          — SQLite: logs / media_jobs / metrics (thread-safe)
+  core/parser.py      — Trend Analyst: Scrape Creators → MarkUDown MCP
+  core/webhook.py     — Webhook-приёмник Node 1 (http.server, daemon)
+  core/evaluator.py   — Vision-судья + микро-Ralph Loop (Safety Valve=3)
+  core/publisher.py   — SMM-Паблишер: CLI-автопостинг + метрики 1d/1w/1m
+  core/orchestrator.py— Kanban state machine, cron/webhook, backpressure
+
+Принципы Harness Engineering соблюдены: интеллект — в моделях,
+отказоустойчивость — в инфраструктуре. TDD на каждой задаче
+(красная → зелёная), mypy-строгость, Ponytail-минимализм (stdlib вместо
+фреймворков), Graphify-граф как долговременная память кодовой базы.

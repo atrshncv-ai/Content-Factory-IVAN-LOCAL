@@ -92,6 +92,15 @@ def test_upsert_job_does_not_duplicate(db: Database) -> None:
     db.log("x", "x", "x")  # убеждаемся, что соединение живо
 
 
+def test_fetch_jobs_by_status(db: Database) -> None:
+    """Оркестратор опрашивает доску по статусам (Kanban-выборки)."""
+    db.upsert_job("a", "new")
+    db.upsert_job("b", "done")
+    db.upsert_job("c", "new")
+    jobs = db.fetch_jobs_by_status("new")
+    assert {job["job_id"] for job in jobs} == {"a", "c"}
+
+
 def test_fetch_job_missing_returns_none(db: Database) -> None:
     """Несуществующее задание — None, а не исключение."""
     assert db.fetch_job("nope") is None

@@ -111,6 +111,14 @@ class Database:
                 (job_id, status, file_path),
             )
 
+    def fetch_jobs_by_status(self, status: str) -> list[sqlite3.Row]:
+        """Все задания с заданным статусом, по порядку создания (Kanban-выборка)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM media_jobs WHERE status = ? ORDER BY id", (status,)
+            )
+            return list(cur.fetchall())
+
     def fetch_job(self, job_id: str) -> sqlite3.Row | None:
         """Задание по job_id или None, если его нет."""
         with self._lock:
