@@ -20,6 +20,7 @@ class Settings(BaseSettings):
         lmstudio_base_url: OpenAI-совместимый эндпоинт локальной LM Studio —
             последний fallback при полном отказе облачных API.
         lmstudio_model: Имя локальной модели в LM Studio.
+        db_path: Путь к файлу операционной БД SQLite.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -34,3 +35,5 @@ class Settings(BaseSettings):
 
     lmstudio_base_url: str = "http://localhost:1234/v1"
     lmstudio_model: str = "local-model"
+
+    db_path: str = "data/factory.db"

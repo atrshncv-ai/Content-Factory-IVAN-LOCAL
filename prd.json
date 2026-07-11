@@ -12,7 +12,7 @@
       "id": "2",
       "phase": "Memory",
       "description": "Интеграция Graphify и SQLite для долговременной памяти и логирования",
-      "passes": false
+      "passes": true
     },
     {
       "id": "3",

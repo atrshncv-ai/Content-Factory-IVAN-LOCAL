@@ -27,3 +27,24 @@
   .env.example, requirements.txt, .gitignore
 
 Следующая задача: ID 2 (Memory) — Graphify + SQLite.
+
+[2026-07-11] Задача ID 2 (Memory) — ВЫПОЛНЕНА ✓
+
+Что сделано:
+1. core/db.py — операционная память на встроенном sqlite3 (без ORM):
+   - logs: журнал Оркестратора/субагентов (level, agent, message, ts).
+   - media_jobs: статусы генерации Node 1, upsert по UNIQUE job_id
+     без дублей; file_path не затирается повторным upsert'ом статуса.
+   - metrics: многоуровневые метрики постов, CHECK period IN (1d/1w/1m).
+   - init_schema() идемпотентна; папка для БД создаётся автоматически.
+2. Settings: новое поле db_path (из .env, default data/factory.db).
+3. Graphify (пакет graphifyy 0.9.12): scripts/update_graph.sh —
+   идемпотентная обертка `graphify update`, берёт бинарь из .venv.
+   Первый граф построен: 128 узлов / 197 рёбер / 21 сообщество
+   (graph.json, graph.html, GRAPH_REPORT.md в graphify-out/).
+4. .gitignore += data/ и graphify-out/ (артефакты не коммитятся).
+5. Качество: pytest 19/19 passed (9 новых на core.db), mypy 0 ошибок.
+   TDD соблюдён: красная фаза зафиксирована до реализации.
+
+Следующая задача: ID 3 (Sub-agent: Parser) — Scrape Creators API +
+MarkUDown MCP fallback.
