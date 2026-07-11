@@ -28,6 +28,7 @@ class Settings(BaseSettings):
         webhook_host: Интерфейс Webhook-приёмника.
         webhook_port: Порт Webhook-приёмника.
         evaluator_max_retries: Safety Valve микро-Ralph Loop Контролёра Качества.
+        autopost_command: Команда CLI-утилиты автопостинга (SMM-Паблишер).
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -54,3 +55,5 @@ class Settings(BaseSettings):
     webhook_port: int = 8099
 
     evaluator_max_retries: int = 3
+
+    autopost_command: str = "autopost"

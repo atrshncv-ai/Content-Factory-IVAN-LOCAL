@@ -36,7 +36,7 @@
       "id": "6",
       "phase": "Sub-agent: Publisher",
       "description": "Интеграция CLI-обертки SaaS-сервиса автопостинга и сборщика многоуровневых метрик",
-      "passes": false
+      "passes": true
     },
     {
       "id": "7",
