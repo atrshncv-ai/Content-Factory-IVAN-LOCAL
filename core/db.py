@@ -8,6 +8,7 @@
 в Graphify + Vector DB; здесь только операционное состояние.
 """
 import sqlite3
+import threading
 from pathlib import Path
 
 SCHEMA = """
@@ -54,22 +55,27 @@ class Database:
     """
 
     def __init__(self, db_path: str) -> None:
-        """Открывает (или создаёт) файл БД; родительская папка создаётся автоматически."""
+        """Открывает (или создаёт) файл БД; родительская папка создаётся автоматически.
+
+        check_same_thread=False + Lock: соединением можно делиться между
+        потоками (Webhook-сервер обрабатывает запросы в своих потоках).
+        """
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
 
     def init_schema(self) -> None:
         """Создаёт таблицы, если их ещё нет (идемпотентно)."""
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.executescript(SCHEMA)
 
     # --- Логи ------------------------------------------------------------------
 
     def log(self, level: str, agent: str, message: str) -> int:
         """Пишет запись в журнал. Returns: id созданной строки."""
-        with self._conn:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 "INSERT INTO logs (level, agent, message) VALUES (?, ?, ?)",
                 (level, agent, message),
@@ -78,10 +84,11 @@ class Database:
 
     def fetch_logs(self, limit: int = 50) -> list[sqlite3.Row]:
         """Последние записи журнала, от новых к старым."""
-        cur = self._conn.execute(
-            "SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)
-        )
-        return list(cur.fetchall())
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)
+            )
+            return list(cur.fetchall())
 
     # --- Медиа-задания (Node 1) -------------------------------------------------
 
@@ -91,7 +98,7 @@ class Database:
         `file_path` перезаписывается только если передан — повторный upsert
         статуса не затирает уже сохранённый путь к файлу.
         """
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute(
                 """
                 INSERT INTO media_jobs (job_id, status, file_path)
@@ -106,10 +113,11 @@ class Database:
 
     def fetch_job(self, job_id: str) -> sqlite3.Row | None:
         """Задание по job_id или None, если его нет."""
-        cur = self._conn.execute(
-            "SELECT * FROM media_jobs WHERE job_id = ?", (job_id,)
-        )
-        return cur.fetchone()
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM media_jobs WHERE job_id = ?", (job_id,)
+            )
+            return cur.fetchone()
 
     # --- Метрики ----------------------------------------------------------------
 
@@ -121,7 +129,7 @@ class Database:
         Raises:
             sqlite3.IntegrityError: период вне CHECK-ограничения.
         """
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute(
                 """
                 INSERT INTO metrics (post_id, period, likes, comments, reach)
@@ -132,10 +140,11 @@ class Database:
 
     def fetch_metrics(self, post_id: str) -> list[sqlite3.Row]:
         """Все метрики поста, от новых к старым."""
-        cur = self._conn.execute(
-            "SELECT * FROM metrics WHERE post_id = ? ORDER BY id DESC", (post_id,)
-        )
-        return list(cur.fetchall())
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM metrics WHERE post_id = ? ORDER BY id DESC", (post_id,)
+            )
+            return list(cur.fetchall())
 
     def close(self) -> None:
         """Закрывает соединение с БД."""

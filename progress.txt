@@ -68,3 +68,24 @@ MarkUDown MCP fallback.
 
 Следующая задача: ID 4 (Node 1 Connection) — Webhook-приёмник ComfyUI
 и чтение из Shared Folder.
+
+[2026-07-11] Задача ID 4 (Node 1 Connection) — ВЫПОЛНЕНА ✓
+
+Что сделано:
+1. core/webhook.py — приёмник ComfyUI на stdlib http.server (ноль зависимостей):
+   - handle_webhook(payload, db, shared_folder): чистая логика без сокетов —
+     валидация, защита от path traversal, проверка файла в Shared Folder,
+     upsert в media_jobs + аудит-лог (agent=webhook). Файл не найден →
+     status='error' (брак для Evaluator'а).
+   - serve_in_background(): ThreadingHTTPServer в daemon-потоке — Оркестратор
+     не блокируется; foreground-режим: `python -m core.webhook`.
+2. core/db.py — thread-safety: check_same_thread=False + Lock (реальный баг,
+   найден e2e-тестом: ThreadingHTTPServer работает в своих потоках).
+3. Settings: shared_folder, webhook_host, webhook_port (+ .env.example).
+4. Тесты: 7 новых (логика + e2e на реальном сервере с эфемерным портом).
+   TDD: красная → зелёная. Доп. smoke-тест `python -m core.webhook` + curl.
+5. Качество: pytest 32/32 passed, mypy 0 ошибок (13 файлов).
+6. Граф знаний обновлён: 209 узлов / 364 ребра / 21 сообщество.
+
+Следующая задача: ID 5 (Sub-agent: Evaluator) — Vision-контроль качества
+и микро-Ralph Loop перегенерации.

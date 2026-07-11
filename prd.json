@@ -24,7 +24,7 @@
       "id": "4",
       "phase": "Node 1 Connection",
       "description": "Настройка Webhook-приемника для связи с ComfyUI и логики чтения из Shared Folder",
-      "passes": false
+      "passes": true
     },
     {
       "id": "5",
