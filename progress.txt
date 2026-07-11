@@ -1,0 +1,29 @@
+=== Контент-завод (Node 2 — The Brain) — Журнал прогресса ===
+
+[2026-07-11] Задача ID 1 (Infrastructure) — ВЫПОЛНЕНА ✓
+
+Что сделано:
+1. Окружение: venv на Python 3.11 (требование AGENTS.md 3.10+; системный
+   python3.9 отклонён). Зависимости: pydantic-settings, openai, pytest, mypy.
+2. core/config.py — Settings на pydantic-settings: пул ключей
+   (OpenRouter/OpenAI/Anthropic) и эндпоинт LM Studio читаются только из .env.
+   Шаблон .env.example в корне. Хардкода секретов нет.
+3. core/llm.py — единый LLMClient с менеджером ключей и fallback-цепочкой:
+   OpenRouter → OpenAI → Anthropic → локальная LM Studio (всегда последняя).
+   Все провайдеры через один openai-SDK (OpenAI-совместимые эндпоинты).
+   При лимите/ошибке — молчаливая ротация ключа; при полном отказе —
+   LLMUnavailableError. Провайдер без ключа пропускается.
+4. Тесты (Superpowers: сначала красная фаза, потом реализация):
+   10 тестов — загрузка ключей из env, дефолты LM Studio, сборка цепочки,
+   ротация ключей, fallback на LM Studio, исключение при полном отказе.
+   Сеть не используется (openai.OpenAI подменяется фейком).
+5. Качество: pytest 10/10 passed, mypy 0 ошибок (disallow_untyped_defs).
+   Все модули с Docstrings под будущий Graphify.
+
+Структура:
+  core/{__init__,config,llm}.py   — инфраструктурный слой
+  tests/                          — pytest + conftest (IsolatedSettings)
+  pyproject.toml                  — конфиг pytest/mypy
+  .env.example, requirements.txt, .gitignore
+
+Следующая задача: ID 2 (Memory) — Graphify + SQLite.

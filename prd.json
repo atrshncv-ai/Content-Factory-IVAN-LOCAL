@@ -1,0 +1,48 @@
+{
+  "project": "Autonomous Content Factory",
+  "status": "in_progress",
+  "tasks": [
+    {
+      "id": "1",
+      "phase": "Infrastructure",
+      "description": "Настройка базового Python-окружения, менеджера API ключей (.env) и модуля Fallback на локальную LM Studio",
+      "passes": true
+    },
+    {
+      "id": "2",
+      "phase": "Memory",
+      "description": "Интеграция Graphify и SQLite для долговременной памяти и логирования",
+      "passes": false
+    },
+    {
+      "id": "3",
+      "phase": "Sub-agent: Parser",
+      "description": "Разработка модуля Парсера (Scrape Creators API + MarkUDown MCP fallback)",
+      "passes": false
+    },
+    {
+      "id": "4",
+      "phase": "Node 1 Connection",
+      "description": "Настройка Webhook-приемника для связи с ComfyUI и логики чтения из Shared Folder",
+      "passes": false
+    },
+    {
+      "id": "5",
+      "phase": "Sub-agent: Evaluator",
+      "description": "Настройка Vision-контроля и микро-цикла Ralph Loop для оценки сгенерированных изображений",
+      "passes": false
+    },
+    {
+      "id": "6",
+      "phase": "Sub-agent: Publisher",
+      "description": "Интеграция CLI-обертки SaaS-сервиса автопостинга и сборщика многоуровневых метрик",
+      "passes": false
+    },
+    {
+      "id": "7",
+      "phase": "Orchestration",
+      "description": "Настройка Главного Оркестратора через Hermes Kanban (или аналог) для управления воркерами по Cron/Webhooks",
+      "passes": false
+    }
+  ]
+}

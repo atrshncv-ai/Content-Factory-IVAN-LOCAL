@@ -1,0 +1,15 @@
+[project]
+name = "content-factory"
+version = "0.1.0"
+description = "Autonomous Content Factory — Node 2 (The Brain)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["core", "tests"]
+disallow_untyped_defs = true
+warn_unused_ignores = true
