@@ -89,3 +89,28 @@ MarkUDown MCP fallback.
 
 Следующая задача: ID 5 (Sub-agent: Evaluator) — Vision-контроль качества
 и микро-Ralph Loop перегенерации.
+
+[2026-07-11] Задача ID 5 (Sub-agent: Evaluator) — ВЫПОЛНЕНА ✓
+
+Что сделано:
+1. core/evaluator.py — Контролёр Качества (Vision-судья):
+   - evaluate_image(): картинка → base64 → Vision-модель через единый
+     LLMClient (Protocol VisionClient — структурная типизация, ноль
+     наследования). Строгий JSON-вердикт {approved, reason}; парсер
+     понимает ```json-фенсы, мусор = брак (судья не падает).
+   - evaluate_job(): микро-Ralph Loop (while True — единственный в
+     системе, разрешён AGENTS.md). Машина статусов: done → approved /
+     regenerating → failed. Каждый вердикт в аудит-лог.
+   - SAFETY VALVE: max_retries (default 3, из .env) → максимум 4 вызова
+     Vision, затем честный 'failed'. Бюджет токенов под контролем.
+   - Шов regenerate: Callable[[str], None] — вызов cli-anything-comfyui
+     на Node 1 подключается в Оркестраторе (Задача 7).
+2. Settings: evaluator_max_retries (+ .env.example).
+3. Тесты: 4 новых — аппрув с 1 раза, аппрув после 2 браковок, жёсткий
+   выход по MAX_RETRIES (ровно 4 оценки/3 перегенерации), мусорный JSON.
+   TDD: красная → зелёная.
+4. Качество: pytest 36/36 passed, mypy 0 ошибок (15 файлов).
+5. Граф знаний обновлён: 251 узел / 444 ребра / 15 сообществ.
+
+Следующая задача: ID 6 (Sub-agent: Publisher) — CLI-автопостинг +
+многоуровневые метрики.

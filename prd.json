@@ -30,7 +30,7 @@
       "id": "5",
       "phase": "Sub-agent: Evaluator",
       "description": "Настройка Vision-контроля и микро-цикла Ralph Loop для оценки сгенерированных изображений",
-      "passes": false
+      "passes": true
     },
     {
       "id": "6",

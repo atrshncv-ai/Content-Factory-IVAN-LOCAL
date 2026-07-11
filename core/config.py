@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         shared_folder: Локальный путь к Shared Folder (шаринг с Node 1).
         webhook_host: Интерфейс Webhook-приёмника.
         webhook_port: Порт Webhook-приёмника.
+        evaluator_max_retries: Safety Valve микро-Ralph Loop Контролёра Качества.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -51,3 +52,5 @@ class Settings(BaseSettings):
     shared_folder: str = "shared"
     webhook_host: str = "0.0.0.0"
     webhook_port: int = 8099
+
+    evaluator_max_retries: int = 3
