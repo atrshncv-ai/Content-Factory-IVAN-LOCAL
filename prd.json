@@ -18,7 +18,7 @@
       "id": "3",
       "phase": "Sub-agent: Parser",
       "description": "Разработка модуля Парсера (Scrape Creators API + MarkUDown MCP fallback)",
-      "passes": false
+      "passes": true
     },
     {
       "id": "4",

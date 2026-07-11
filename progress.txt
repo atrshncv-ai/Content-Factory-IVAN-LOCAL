@@ -48,3 +48,23 @@
 
 Следующая задача: ID 3 (Sub-agent: Parser) — Scrape Creators API +
 MarkUDown MCP fallback.
+
+[2026-07-11] Задача ID 3 (Sub-agent: Parser) — ВЫПОЛНЕНА ✓
+
+Что сделано:
+1. core/parser.py — субагент «Trend Analyst» с fallback-цепочкой:
+   Scrape Creators API (REST, stdlib urllib — ноль новых зависимостей)
+   → MarkUDown MCP как внешний CLI-syscall (subprocess, AGENTS.md).
+   - Единая схема тренда {title, url, engagement, source}.
+   - Без API-ключа primary пропускается сразу (как build_providers).
+   - ParserUnavailableError при полном отказе обоих источников.
+   - I/O спрятан за швами _http_get_json/_run_command = граница моков.
+2. Settings: scrape_creators_api_key, scrape_creators_base_url,
+   markudown_command (+ .env.example).
+3. Тесты: 6 новых (мок успешного API, заголовки/URL, limit, skip без
+   ключа, переключение на MarkUDown, краш-кейс). TDD: красная → зелёная.
+4. Качество: pytest 25/25 passed, mypy 0 ошибок (11 файлов).
+5. Граф знаний обновлён: 172 узла / 286 рёбер / 15 сообществ.
+
+Следующая задача: ID 4 (Node 1 Connection) — Webhook-приёмник ComfyUI
+и чтение из Shared Folder.

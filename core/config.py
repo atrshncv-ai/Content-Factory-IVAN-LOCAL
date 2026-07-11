@@ -21,6 +21,9 @@ class Settings(BaseSettings):
             последний fallback при полном отказе облачных API.
         lmstudio_model: Имя локальной модели в LM Studio.
         db_path: Путь к файлу операционной БД SQLite.
+        scrape_creators_api_key: Ключ Scrape Creators API (primary-парсер).
+        scrape_creators_base_url: Базовый URL Scrape Creators API.
+        markudown_command: Команда запуска MarkUDown MCP (fallback-парсер).
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -37,3 +40,7 @@ class Settings(BaseSettings):
     lmstudio_model: str = "local-model"
 
     db_path: str = "data/factory.db"
+
+    scrape_creators_api_key: str | None = None
+    scrape_creators_base_url: str = "https://api.scrapecreators.com/v1"
+    markudown_command: str = "markudown"
