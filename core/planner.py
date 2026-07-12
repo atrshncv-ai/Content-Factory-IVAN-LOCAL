@@ -81,8 +81,9 @@ class ContentPlanner:
         if job["status"] != "new":
             raise ValueError(f"задание {job_id} не в статусе new: {job['status']}")
 
-        trend_title = job["job_id"]
-        trend_url = job["job_id"]
+        # Реальные метаданные тренда (fallback на job_id для legacy-заданий).
+        trend_title = job["trend_title"] or job["job_id"]
+        trend_url = job["trend_url"] or ""
 
         messages: list[ChatCompletionMessageParam] = [
             {

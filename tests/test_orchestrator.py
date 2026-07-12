@@ -12,8 +12,9 @@ from typing import Any
 import pytest
 
 from core.db import Database
-from core.orchestrator import Orchestrator
+from core.orchestrator import Orchestrator, _build_node1_command
 from core.publisher import PublishError
+from tests.conftest import IsolatedSettings
 
 
 class _FakeParser:
@@ -89,9 +90,11 @@ class _FakeSubmit:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.prompts: list[tuple[str, str]] = []
 
-    def __call__(self, job_id: str) -> None:
+    def __call__(self, job_id: str, video_prompt: str = "", photo_prompt: str = "") -> None:
         self.calls.append(job_id)
+        self.prompts.append((video_prompt, photo_prompt))
 
 
 @pytest.fixture
@@ -176,6 +179,32 @@ def test_tick_ready_goes_to_node1(db: Database) -> None:
     assert job is not None and job["status"] == "generating"
 
 
+def test_submit_forwards_prompts_to_node1(db: Database) -> None:
+    """Node 1 получает video/photo промпты из БД (регресс: раньше слали только job_id)."""
+    db.upsert_job(
+        "job-p", "ready_for_render",
+        video_prompt="static portrait, soft light",
+        photo_prompt="flat lay, warm tones",
+    )
+    submit = _FakeSubmit()
+    summary = make_orchestrator(db, submit=submit).run_once()
+    assert submit.calls == ["job-p"]
+    assert submit.prompts == [("static portrait, soft light", "flat lay, warm tones")]
+    assert summary["submitted"] == 1
+
+
+def test_node1_command_includes_prompt_flags() -> None:
+    """cli-anything-comfyui получает промпты флагами; regenerate — без них."""
+    settings = IsolatedSettings(comfyui_command="cli-anything-comfyui")
+    command = _build_node1_command(settings, "submit", "job-1", "VP", "PP")
+    assert command == [
+        "cli-anything-comfyui", "submit", "job-1",
+        "--video-prompt", "VP", "--photo-prompt", "PP",
+    ]
+    regen = _build_node1_command(settings, "regenerate", "job-1")
+    assert "--video-prompt" not in regen
+
+
 def test_tick_evaluates_done_jobs(db: Database, media: Path) -> None:
     """done → Evaluator → approved."""
     db.upsert_job("job-a", "done", str(media))
@@ -199,12 +228,17 @@ def test_tick_publishes_approved_jobs(db: Database, media: Path) -> None:
 
 
 def test_tick_creates_jobs_from_trends_when_queue_empty(db: Database) -> None:
-    """Пустая доска → Парсер ищет тренды → создаются задания new."""
+    """Пустая доска → Парсер ищет тренды → создаются задания new с метаданными."""
     parser = _FakeParser(TRENDS)
     summary = make_orchestrator(db, parser=parser).run_once()
     assert parser.calls == 1
     assert summary["created"] == 2
-    assert len(db.fetch_jobs_by_status("new")) == 2
+    jobs = db.fetch_jobs_by_status("new")
+    assert len(jobs) == 2
+    assert {j["trend_title"] for j in jobs} == {"T1", "T2"}
+    assert {j["trend_url"] for j in jobs} == {
+        "https://ig.example/p/1", "https://ig.example/p/2",
+    }
 
 
 def test_tick_full_pipeline_one_pass(db: Database, media: Path) -> None:

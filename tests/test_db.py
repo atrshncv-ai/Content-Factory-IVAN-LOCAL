@@ -92,6 +92,18 @@ def test_upsert_job_does_not_duplicate(db: Database) -> None:
     db.log("x", "x", "x")  # убеждаемся, что соединение живо
 
 
+def test_upsert_job_stores_trend_metadata(db: Database) -> None:
+    """trend_title/trend_url сохраняются при создании и не затираются upsert'ом статуса."""
+    db.upsert_job("t-1", "new", trend_title="Coffee art", trend_url="https://ig/p/1")
+    job = db.fetch_job("t-1")
+    assert job is not None
+    assert job["trend_title"] == "Coffee art"
+    assert job["trend_url"] == "https://ig/p/1"
+    db.upsert_job("t-1", "planned")
+    job = db.fetch_job("t-1")
+    assert job is not None and job["trend_title"] == "Coffee art"
+
+
 def test_fetch_jobs_by_status(db: Database) -> None:
     """Оркестратор опрашивает доску по статусам (Kanban-выборки)."""
     db.upsert_job("a", "new")

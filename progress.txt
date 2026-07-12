@@ -177,3 +177,17 @@ MarkUDown MCP fallback.
 отказоустойчивость — в инфраструктуре. TDD на каждой задаче
 (красная → зелёная), mypy-строгость, Ponytail-минимализм (stdlib вместо
 фреймворков), Graphify-граф как долговременная память кодовой базы.
+
+[2026-07-12] Post-audit fixes — ВЫПОЛНЕНО ✓
+
+1. Static-only ограничения в промптах Planner/Prompter (запрет терминов
+   видео/движения/камеры) + Gate Pattern: пустые промпты от LLM → задача
+   остаётся planned (повтор на следующем тике), ERROR в лог.
+2. Проброс промптов в Node 1: _submit_ready передаёт video/photo_prompt
+   из БД в submit-шов; cli-anything-comfyui получает их флагами
+   --video-prompt/--photo-prompt (регресс-тест на форму команды).
+3. Метаданные трендов: media_jobs += trend_title/trend_url; Оркестратор
+   сохраняет их при создании job; Planner использует реальный тренд
+   вместо хеша job_id (fallback для legacy).
+4. mypy восстановлен (crawl4ai overrides).
+5. Качество: pytest 71/71 passed, mypy 0 ошибок (23 файла).

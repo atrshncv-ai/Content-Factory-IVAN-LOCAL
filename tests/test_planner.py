@@ -56,6 +56,19 @@ def test_prompt_enforces_static_only(db: Database) -> None:
     assert "Запрещено" in text
 
 
+def test_plan_job_uses_real_trend_metadata(db: Database) -> None:
+    """Planner получает реальный тренд в промпт, а не хеш job_id."""
+    db.upsert_job(
+        "job-1", "new",
+        trend_title="Coffee art trend", trend_url="https://ig.example/p/9",
+    )
+    llm = _FakeLLM(['{"concept": "x"}'])
+    ContentPlanner(llm, db).plan_job("job-1")
+    text = llm.messages[0][0]["content"]
+    assert "Coffee art trend" in text
+    assert "https://ig.example/p/9" in text
+
+
 def test_requires_new_status(db: Database) -> None:
     """Задание не в new → ValueError (LLM не вызывается)."""
     db.upsert_job("job-1", "planned")

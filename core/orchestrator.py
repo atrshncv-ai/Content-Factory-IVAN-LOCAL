@@ -84,7 +84,7 @@ class Orchestrator:
         prompter: Промпт-инженер (planned → ready_for_render).
         evaluator: Контролёр Качества (done → approved/failed).
         publisher: SMM-Паблишер (approved → published).
-        submit: Отправка задания на Node 1 (cli-anything-comfyui).
+        submit: Отправка задания на Node 1: (job_id, video_prompt, photo_prompt).
         niche: Тематика для Парсера.
 
     Example:
@@ -99,7 +99,7 @@ class Orchestrator:
         prompter: JobPrompter,
         evaluator: JobEvaluator,
         publisher: PostPublisher,
-        submit: Callable[[str], None],
+        submit: Callable[[str, str, str], None],
         niche: str = "ai",
     ) -> None:
         self._db = db
@@ -170,11 +170,15 @@ class Orchestrator:
             self._create_from_trends(summary)
 
     def _create_from_trends(self, summary: dict[str, int]) -> None:
-        """Backpressure: доска пуста → Парсер → задания new."""
+        """Backpressure: доска пуста → Парсер → задания new с метаданными тренда."""
         try:
             trends = self._parser.fetch_trends(self._niche)
             for trend in trends:
-                self._db.upsert_job(_job_id_from_trend(trend), "new")
+                self._db.upsert_job(
+                    _job_id_from_trend(trend), "new",
+                    trend_title=str(trend.get("title", "")),
+                    trend_url=str(trend.get("url", "")),
+                )
                 summary["created"] += 1
         except Exception as exc:
             summary["errors"] += 1
@@ -188,7 +192,11 @@ class Orchestrator:
 
     def _submit_ready(self, job: Any) -> None:
         """ready_for_render → generating: отправка промптов на Node 1."""
-        self._submit(job["job_id"])
+        self._submit(
+            job["job_id"],
+            str(job["video_prompt"] or ""),
+            str(job["photo_prompt"] or ""),
+        )
         self._db.upsert_job(job["job_id"], "generating")
 
     # --- Хелперы ------------------------------------------------------------------
@@ -209,10 +217,27 @@ class Orchestrator:
         return f"{job_id} — AI контент #{self._niche}"
 
 
-def _node1_call(settings: Settings, action: str, job_id: str) -> None:
+def _build_node1_command(
+    settings: Settings, action: str, job_id: str,
+    video_prompt: str | None = None, photo_prompt: str | None = None,
+) -> list[str]:
+    """Собирает команду cli-anything-comfyui; промпты передаются флагами."""
+    command = [settings.comfyui_command, action, job_id]
+    if video_prompt is not None:
+        command += ["--video-prompt", video_prompt]
+    if photo_prompt is not None:
+        command += ["--photo-prompt", photo_prompt]
+    return command
+
+
+def _node1_call(
+    settings: Settings, action: str, job_id: str,
+    video_prompt: str | None = None, photo_prompt: str | None = None,
+) -> None:
     """Отправка/перегенерация задания на Node 1 через cli-anything-comfyui."""
     subprocess.run(
-        [settings.comfyui_command, action, job_id], check=True, timeout=600,
+        _build_node1_command(settings, action, job_id, video_prompt, photo_prompt),
+        check=True, timeout=600,
     )
 
 
@@ -237,7 +262,7 @@ def main() -> None:
             max_retries=settings.evaluator_max_retries,
         ),
         publisher=Publisher(settings, db),
-        submit=lambda job_id: _node1_call(settings, "submit", job_id),
+        submit=lambda job_id, vp, pp: _node1_call(settings, "submit", job_id, vp, pp),
         niche=settings.content_niche,
     )
     orchestrator.run_once(trigger_job_id=parsed.trigger)

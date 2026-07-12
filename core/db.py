@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS media_jobs (
     concept      TEXT,
     video_prompt TEXT,
     photo_prompt TEXT,
+    trend_title  TEXT,
+    trend_url    TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -103,26 +105,33 @@ class Database:
         concept: str | None = None,
         video_prompt: str | None = None,
         photo_prompt: str | None = None,
+        trend_title: str | None = None,
+        trend_url: str | None = None,
     ) -> None:
         """Создаёт задание или обновляет его статус и данные.
 
-        Поля concept/video_prompt/photo_prompt перезаписываются только если
-        переданы — повторный upsert статуса не затирает уже сохранённые данные.
+        Поля concept/video_prompt/photo_prompt/trend_title/trend_url
+        перезаписываются только если переданы — повторный upsert статуса
+        не затирает уже сохранённые данные.
         """
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO media_jobs (job_id, status, file_path, concept, video_prompt, photo_prompt)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO media_jobs (job_id, status, file_path, concept,
+                                        video_prompt, photo_prompt, trend_title, trend_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     status = excluded.status,
                     file_path = COALESCE(excluded.file_path, media_jobs.file_path),
                     concept = COALESCE(excluded.concept, media_jobs.concept),
                     video_prompt = COALESCE(excluded.video_prompt, media_jobs.video_prompt),
                     photo_prompt = COALESCE(excluded.photo_prompt, media_jobs.photo_prompt),
+                    trend_title = COALESCE(excluded.trend_title, media_jobs.trend_title),
+                    trend_url = COALESCE(excluded.trend_url, media_jobs.trend_url),
                     updated_at = datetime('now')
                 """,
-                (job_id, status, file_path, concept, video_prompt, photo_prompt),
+                (job_id, status, file_path, concept, video_prompt, photo_prompt,
+                 trend_title, trend_url),
             )
 
     def fetch_jobs_by_status(self, status: str) -> list[sqlite3.Row]:
