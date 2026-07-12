@@ -4,7 +4,12 @@
 все субагенты (Parser, Planner, Prompter, Evaluator, Publisher) и отправка
 на Node 1 замоканы. Оркестратор не содержит while-циклов: один запуск =
 один шаг по доске + чистый возврат summary (Clean Context, exit(0)).
+
+Интеграция с Node 1: Оркестратор рендерит workflow-JSON из шаблона
+(подстановка photo_prompt в CLIPTextEncode) и вызывает
+`cli-anything-comfyui queue prompt --workflow PATH`.
 """
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -12,7 +17,7 @@ from typing import Any
 import pytest
 
 from core.db import Database
-from core.orchestrator import Orchestrator, _build_node1_command
+from core.orchestrator import PROMPT_PLACEHOLDER, Orchestrator, _build_node1_command
 from core.publisher import PublishError
 from tests.conftest import IsolatedSettings
 
@@ -86,15 +91,25 @@ class _FakePublisher:
 
 
 class _FakeSubmit:
-    """Отправка задания на Node 1 (cli-anything-comfyui) — заглушка."""
+    """Отправка workflow на Node 1 — заглушка: записывает (job_id, путь к workflow)."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
-        self.prompts: list[tuple[str, str]] = []
+        self.paths: list[str] = []
 
-    def __call__(self, job_id: str, video_prompt: str = "", photo_prompt: str = "") -> None:
+    def __call__(self, job_id: str, workflow_path: str) -> None:
         self.calls.append(job_id)
-        self.prompts.append((video_prompt, photo_prompt))
+        self.paths.append(workflow_path)
+
+
+TEMPLATE_STUB = {
+    "1": {"class_type": "CheckpointLoaderSimple",
+          "inputs": {"ckpt_name": "model.safetensors"}},
+    "6": {"class_type": "CLIPTextEncode",
+          "inputs": {"text": PROMPT_PLACEHOLDER, "clip": ["1", 1]}},
+    "3": {"class_type": "KSampler", "inputs": {"positive": ["6", 0]}},
+    "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "factory"}},
+}
 
 
 @pytest.fixture
@@ -114,6 +129,7 @@ def media(tmp_path: Path) -> Path:
 
 def make_orchestrator(
     db: Database,
+    tmp_path: Path,
     parser: _FakeParser | None = None,
     planner: _FakePlanner | None = None,
     prompter: _FakePrompter | None = None,
@@ -121,7 +137,9 @@ def make_orchestrator(
     publisher: _FakePublisher | None = None,
     submit: _FakeSubmit | None = None,
 ) -> Orchestrator:
-    """Оркестратор со всеми замоканными субагентами."""
+    """Оркестратор со всеми замоканными субагентами и tmp-шаблоном workflow."""
+    template = tmp_path / "workflow_template.json"
+    template.write_text(json.dumps(TEMPLATE_STUB), encoding="utf-8")
     return Orchestrator(
         db=db,
         parser=parser or _FakeParser([]),
@@ -130,6 +148,8 @@ def make_orchestrator(
         evaluator=evaluator or _FakeEvaluator(db),
         publisher=publisher or _FakePublisher(),
         submit=submit or _FakeSubmit(),
+        workflow_template=str(template),
+        workflow_dir=str(tmp_path),
     )
 
 
@@ -143,11 +163,11 @@ TRENDS = [
 
 # --- Переходы состояний (cron-тик) --------------------------------------------
 
-def test_tick_new_goes_to_planner(db: Database) -> None:
+def test_tick_new_goes_to_planner(db: Database, tmp_path: Path) -> None:
     """new → Planner → planned."""
     db.upsert_job("job-c", "new")
     planner = _FakePlanner(db)
-    summary = make_orchestrator(db, planner=planner).run_once()
+    summary = make_orchestrator(db, tmp_path, planner=planner).run_once()
     assert planner.calls == ["job-c"]
     assert summary["planned"] == 1
     job = db.fetch_job("job-c")
@@ -155,11 +175,11 @@ def test_tick_new_goes_to_planner(db: Database) -> None:
     assert job["concept"] is not None
 
 
-def test_tick_planned_goes_to_prompter(db: Database) -> None:
+def test_tick_planned_goes_to_prompter(db: Database, tmp_path: Path) -> None:
     """planned → Prompter → ready_for_render."""
     db.upsert_job("job-d", "planned", concept="Test concept")
     prompter = _FakePrompter(db)
-    summary = make_orchestrator(db, prompter=prompter).run_once()
+    summary = make_orchestrator(db, tmp_path, prompter=prompter).run_once()
     assert prompter.calls == ["job-d"]
     assert summary["prompts"] == 1
     job = db.fetch_job("job-d")
@@ -168,69 +188,75 @@ def test_tick_planned_goes_to_prompter(db: Database) -> None:
     assert job["photo_prompt"] is not None
 
 
-def test_tick_ready_goes_to_node1(db: Database) -> None:
-    """ready_for_render → submit → generating."""
+def test_tick_ready_goes_to_node1(db: Database, tmp_path: Path) -> None:
+    """ready_for_render → workflow отрендерен, submit → generating."""
     db.upsert_job("job-e", "ready_for_render")
     submit = _FakeSubmit()
-    summary = make_orchestrator(db, submit=submit).run_once()
+    summary = make_orchestrator(db, tmp_path, submit=submit).run_once()
     assert submit.calls == ["job-e"]
     assert summary["submitted"] == 1
     job = db.fetch_job("job-e")
     assert job is not None and job["status"] == "generating"
 
 
-def test_submit_forwards_prompts_to_node1(db: Database) -> None:
-    """Node 1 получает video/photo промпты из БД (регресс: раньше слали только job_id)."""
+def test_submit_renders_workflow_with_photo_prompt(db: Database, tmp_path: Path) -> None:
+    """photo_prompt подставляется в CLIPTextEncode-ноду workflow-файла."""
     db.upsert_job(
         "job-p", "ready_for_render",
-        video_prompt="static portrait, soft light",
-        photo_prompt="flat lay, warm tones",
+        video_prompt="VP", photo_prompt="flat lay, warm tones",
     )
     submit = _FakeSubmit()
-    summary = make_orchestrator(db, submit=submit).run_once()
+    summary = make_orchestrator(db, tmp_path, submit=submit).run_once()
     assert submit.calls == ["job-p"]
-    assert submit.prompts == [("static portrait, soft light", "flat lay, warm tones")]
     assert summary["submitted"] == 1
-
-
-def test_node1_command_includes_prompt_flags() -> None:
-    """cli-anything-comfyui получает промпты флагами; regenerate — без них."""
-    settings = IsolatedSettings(comfyui_command="cli-anything-comfyui")
-    command = _build_node1_command(settings, "submit", "job-1", "VP", "PP")
-    assert command == [
-        "cli-anything-comfyui", "submit", "job-1",
-        "--video-prompt", "VP", "--photo-prompt", "PP",
+    workflow = json.loads(Path(submit.paths[0]).read_text(encoding="utf-8"))
+    texts = [
+        node["inputs"]["text"] for node in workflow.values()
+        if node["class_type"] == "CLIPTextEncode"
     ]
-    regen = _build_node1_command(settings, "regenerate", "job-1")
-    assert "--video-prompt" not in regen
+    assert "flat lay, warm tones" in texts
+    assert PROMPT_PLACEHOLDER not in texts
 
 
-def test_tick_evaluates_done_jobs(db: Database, media: Path) -> None:
+def test_video_prompt_ignored_and_logged(db: Database, tmp_path: Path) -> None:
+    """video_prompt не попадает в workflow, факт игнорирования пишется в лог."""
+    db.upsert_job(
+        "job-v", "ready_for_render",
+        video_prompt="waves hand slowly", photo_prompt="static portrait",
+    )
+    submit = _FakeSubmit()
+    make_orchestrator(db, tmp_path, submit=submit).run_once()
+    workflow = Path(submit.paths[0]).read_text(encoding="utf-8")
+    assert "waves hand slowly" not in workflow
+    assert any("video_prompt" in log["message"] for log in db.fetch_logs())
+
+
+def test_tick_evaluates_done_jobs(db: Database, tmp_path: Path, media: Path) -> None:
     """done → Evaluator → approved."""
     db.upsert_job("job-a", "done", str(media))
     evaluator = _FakeEvaluator(db)
-    summary = make_orchestrator(db, evaluator=evaluator).run_once()
+    summary = make_orchestrator(db, tmp_path, evaluator=evaluator).run_once()
     assert evaluator.calls == ["job-a"]
     assert summary["evaluated"] == 1
     job = db.fetch_job("job-a")
     assert job is not None and job["status"] == "approved"
 
 
-def test_tick_publishes_approved_jobs(db: Database, media: Path) -> None:
+def test_tick_publishes_approved_jobs(db: Database, tmp_path: Path, media: Path) -> None:
     """approved → Publisher → published."""
     db.upsert_job("job-b", "approved", str(media))
     publisher = _FakePublisher()
-    summary = make_orchestrator(db, publisher=publisher).run_once()
+    summary = make_orchestrator(db, tmp_path, publisher=publisher).run_once()
     assert publisher.calls == [str(media)]
     assert summary["published"] == 1
     job = db.fetch_job("job-b")
     assert job is not None and job["status"] == "published"
 
 
-def test_tick_creates_jobs_from_trends_when_queue_empty(db: Database) -> None:
+def test_tick_creates_jobs_from_trends_when_queue_empty(db: Database, tmp_path: Path) -> None:
     """Пустая доска → Парсер ищет тренды → создаются задания new с метаданными."""
     parser = _FakeParser(TRENDS)
-    summary = make_orchestrator(db, parser=parser).run_once()
+    summary = make_orchestrator(db, tmp_path, parser=parser).run_once()
     assert parser.calls == 1
     assert summary["created"] == 2
     jobs = db.fetch_jobs_by_status("new")
@@ -241,18 +267,17 @@ def test_tick_creates_jobs_from_trends_when_queue_empty(db: Database) -> None:
     }
 
 
-def test_tick_full_pipeline_one_pass(db: Database, media: Path) -> None:
+def test_tick_full_pipeline_one_pass(db: Database, tmp_path: Path, media: Path) -> None:
     """Один тик двигает ВСЕ стадии разом; Парсер не дёргается."""
     db.upsert_job("job-a", "done", str(media))
     db.upsert_job("job-b", "approved", str(media))
     db.upsert_job("job-c", "new")
     db.upsert_job("job-d", "planned", concept="Concept for D")
-    db.upsert_job("job-e", "ready_for_render")
+    db.upsert_job("job-e", "ready_for_render", photo_prompt="static")
     parser = _FakeParser(TRENDS)
-    summary = make_orchestrator(db, parser=parser).run_once()
+    summary = make_orchestrator(db, tmp_path, parser=parser).run_once()
     assert parser.calls == 0
     assert summary["created"] == 0
-    # Проверяем финальные статусы
     job_a = db.fetch_job("job-a")
     job_b = db.fetch_job("job-b")
     job_c = db.fetch_job("job-c")
@@ -265,9 +290,34 @@ def test_tick_full_pipeline_one_pass(db: Database, media: Path) -> None:
     assert job_e is not None and job_e["status"] == "generating"
 
 
+# --- CLI-контракт Node 1 ---------------------------------------------------------
+
+def test_node1_command_is_queue_prompt_with_workflow() -> None:
+    """Реальный контракт cli-anything-comfyui: queue prompt --workflow PATH."""
+    settings = IsolatedSettings(comfyui_command="cli-anything-comfyui")
+    command = _build_node1_command(settings, "/tmp/job_job-1_workflow.json")
+    assert command == [
+        "cli-anything-comfyui", "queue", "prompt",
+        "--workflow", "/tmp/job_job-1_workflow.json",
+    ]
+
+
+def test_bundled_workflow_template_is_valid() -> None:
+    """Боевой шаблон assets/ — валидный API-граф с placeholder-нодой."""
+    template = Path("assets/comfyui_workflow_template.json")
+    workflow = json.loads(template.read_text(encoding="utf-8"))
+    types = {node["class_type"] for node in workflow.values()}
+    assert {"CheckpointLoaderSimple", "CLIPTextEncode", "KSampler", "SaveImage"} <= types
+    assert any(
+        node["inputs"].get("text") == PROMPT_PLACEHOLDER
+        for node in workflow.values()
+        if node["class_type"] == "CLIPTextEncode"
+    )
+
+
 # --- Маршрутизация по Webhook ---------------------------------------------------
 
-def test_webhook_trigger_evaluates_single_job(db: Database, media: Path) -> None:
+def test_webhook_trigger_evaluates_single_job(db: Database, tmp_path: Path, media: Path) -> None:
     """Триггер от Node 1: оценивается ТОЛЬКО указанный job, остальное не трогается."""
     db.upsert_job("job-x", "done", str(media))
     db.upsert_job("job-b", "approved", str(media))
@@ -275,7 +325,7 @@ def test_webhook_trigger_evaluates_single_job(db: Database, media: Path) -> None
     publisher = _FakePublisher()
     parser = _FakeParser(TRENDS)
     summary = make_orchestrator(
-        db, parser=parser, evaluator=evaluator, publisher=publisher,
+        db, tmp_path, parser=parser, evaluator=evaluator, publisher=publisher,
     ).run_once(trigger_job_id="job-x")
     assert evaluator.calls == ["job-x"]
     assert publisher.calls == []
@@ -285,12 +335,12 @@ def test_webhook_trigger_evaluates_single_job(db: Database, media: Path) -> None
 
 # --- Отказоустойчивость ----------------------------------------------------------
 
-def test_tick_continues_on_agent_error(db: Database, media: Path) -> None:
+def test_tick_continues_on_agent_error(db: Database, tmp_path: Path, media: Path) -> None:
     """Падение одного субагента не роняет тик: остальные задания обрабатываются."""
     db.upsert_job("job-bad", "approved", "/nonexistent/bad.png")
     db.upsert_job("job-good", "approved", str(media))
     publisher = _FakePublisher(fail_on="bad")
-    summary = make_orchestrator(db, publisher=publisher).run_once()
+    summary = make_orchestrator(db, tmp_path, publisher=publisher).run_once()
     assert summary["errors"] == 1
     assert summary["published"] == 1
     good = db.fetch_job("job-good")

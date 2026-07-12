@@ -191,3 +191,24 @@ MarkUDown MCP fallback.
    вместо хеша job_id (fallback для legacy).
 4. mypy восстановлен (crawl4ai overrides).
 5. Качество: pytest 71/71 passed, mypy 0 ошибок (23 файла).
+
+[2026-07-12] Fix интеграции ComfyUI (production bug) — ВЫПОЛНЕНО ✓
+
+Продакшен-аудит Hermes: `cli-anything-comfyui submit` не существует
+(exit 2). Реальный контракт: `queue prompt --workflow PATH`.
+1. assets/comfyui_workflow_template.json — API-граф ComfyUI
+   (CheckpointLoaderSimple → CLIPTextEncode×2 → KSampler → VAEDecode →
+   SaveImage) с placeholder {{POSITIVE_PROMPT}} в позитивной ноде.
+2. core/orchestrator.py: render_workflow() подставляет photo_prompt
+   из БД в CLIPTextEncode и пишет /tmp/job_{id}_workflow.json;
+   _build_node1_command → `queue prompt --workflow PATH`; submit-шов
+   теперь (job_id, workflow_path). video_prompt игнорируется с логом
+   (ComfyUI — только статика). regenerate = повторная постановка workflow.
+3. Settings: comfyui_workflow_template, comfyui_workflow_dir (+ .env.example).
+4. Тесты переписаны под реальный контракт: рендер workflow с промптом,
+   форма CLI-команды, валидность боевого шаблона, игнор video_prompt.
+   Smoke на боевом шаблоне: промпт в ноде 6, negative не тронут.
+5. Качество: pytest 73/73 passed, mypy 0 ошибок (23 файла).
+
+Урок зафиксирован: моки должны описывать реальный интерфейс внешнего
+инструмента — контракт CLI теперь покрыт регресс-тестом.

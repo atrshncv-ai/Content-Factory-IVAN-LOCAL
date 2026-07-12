@@ -23,9 +23,11 @@
 """
 import argparse
 import hashlib
+import json
 import subprocess
 from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import Any, Protocol
 
 from core.config import Settings
@@ -41,6 +43,37 @@ ACTIVE_STATUSES = (
     "new", "planned", "ready_for_render",
     "generating", "done", "approved", "regenerating",
 )
+
+PROMPT_PLACEHOLDER = "{{POSITIVE_PROMPT}}"
+
+
+def render_workflow(
+    template_path: Path, job_id: str, photo_prompt: str, out_dir: str
+) -> Path:
+    """Подставляет photo_prompt в позитивную CLIPTextEncode-ноду шаблона ComfyUI.
+
+    Результат сохраняется в `{out_dir}/job_{job_id}_workflow.json` — именно
+    этот файл принимает `cli-anything-comfyui queue prompt --workflow`.
+    ComfyUI рендерит только статику, поэтому video_prompt сюда не попадает.
+
+    Raises:
+        ValueError: placeholder-нода не найдена в шаблоне.
+    """
+    workflow = json.loads(template_path.read_text(encoding="utf-8"))
+    injected = False
+    for node in workflow.values():
+        inputs = node.get("inputs", {})
+        if node.get("class_type") == "CLIPTextEncode" and inputs.get("text") == PROMPT_PLACEHOLDER:
+            inputs["text"] = photo_prompt
+            injected = True
+    if not injected:
+        raise ValueError(f"placeholder {PROMPT_PLACEHOLDER} не найден в {template_path}")
+    out_path = Path(out_dir) / f"job_{job_id}_workflow.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(workflow, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    return out_path
 
 
 class TrendSource(Protocol):
@@ -84,8 +117,10 @@ class Orchestrator:
         prompter: Промпт-инженер (planned → ready_for_render).
         evaluator: Контролёр Качества (done → approved/failed).
         publisher: SMM-Паблишер (approved → published).
-        submit: Отправка задания на Node 1: (job_id, video_prompt, photo_prompt).
+        submit: Постановка workflow в очередь Node 1: (job_id, workflow_path).
         niche: Тематика для Парсера.
+        workflow_template: Путь к шаблону workflow ComfyUI (assets/).
+        workflow_dir: Каталог для сгенерированных workflow-файлов.
 
     Example:
         >>> summary = Orchestrator(db, parser, planner, prompter, evaluator, publisher, submit).run_once()
@@ -99,8 +134,10 @@ class Orchestrator:
         prompter: JobPrompter,
         evaluator: JobEvaluator,
         publisher: PostPublisher,
-        submit: Callable[[str, str, str], None],
+        submit: Callable[[str, str], None],
         niche: str = "ai",
+        workflow_template: str = "assets/comfyui_workflow_template.json",
+        workflow_dir: str = "/tmp",
     ) -> None:
         self._db = db
         self._parser = parser
@@ -110,6 +147,8 @@ class Orchestrator:
         self._publisher = publisher
         self._submit = submit
         self._niche = niche
+        self._workflow_template = workflow_template
+        self._workflow_dir = workflow_dir
 
     def run_once(self, trigger_job_id: str | None = None) -> dict[str, int]:
         """Один проход по доске. Returns: summary — процесс завершается сразу после."""
@@ -191,12 +230,24 @@ class Orchestrator:
         self._db.upsert_job(job["job_id"], "published")
 
     def _submit_ready(self, job: Any) -> None:
-        """ready_for_render → generating: отправка промптов на Node 1."""
-        self._submit(
+        """ready_for_render → generating: workflow-JSON с photo_prompt → очередь Node 1.
+
+        video_prompt игнорируется (ComfyUI рендерит только статику) —
+        факт фиксируется в логе.
+        """
+        video_prompt = str(job["video_prompt"] or "")
+        if video_prompt:
+            self._db.log(
+                "INFO", "orchestrator",
+                f"job {job['job_id']}: video_prompt игнорируется (только статика)",
+            )
+        workflow = render_workflow(
+            Path(self._workflow_template),
             job["job_id"],
-            str(job["video_prompt"] or ""),
             str(job["photo_prompt"] or ""),
+            self._workflow_dir,
         )
+        self._submit(job["job_id"], str(workflow))
         self._db.upsert_job(job["job_id"], "generating")
 
     # --- Хелперы ------------------------------------------------------------------
@@ -217,27 +268,15 @@ class Orchestrator:
         return f"{job_id} — AI контент #{self._niche}"
 
 
-def _build_node1_command(
-    settings: Settings, action: str, job_id: str,
-    video_prompt: str | None = None, photo_prompt: str | None = None,
-) -> list[str]:
-    """Собирает команду cli-anything-comfyui; промпты передаются флагами."""
-    command = [settings.comfyui_command, action, job_id]
-    if video_prompt is not None:
-        command += ["--video-prompt", video_prompt]
-    if photo_prompt is not None:
-        command += ["--photo-prompt", photo_prompt]
-    return command
+def _build_node1_command(settings: Settings, workflow_path: str) -> list[str]:
+    """Реальный контракт cli-anything-comfyui: queue prompt --workflow PATH."""
+    return [settings.comfyui_command, "queue", "prompt", "--workflow", workflow_path]
 
 
-def _node1_call(
-    settings: Settings, action: str, job_id: str,
-    video_prompt: str | None = None, photo_prompt: str | None = None,
-) -> None:
-    """Отправка/перегенерация задания на Node 1 через cli-anything-comfyui."""
+def _node1_call(settings: Settings, workflow_path: str) -> None:
+    """Ставит workflow-файл в очередь рендера Node 1."""
     subprocess.run(
-        _build_node1_command(settings, action, job_id, video_prompt, photo_prompt),
-        check=True, timeout=600,
+        _build_node1_command(settings, workflow_path), check=True, timeout=600,
     )
 
 
@@ -251,6 +290,17 @@ def main() -> None:
     db = Database(settings.db_path)
     db.init_schema()
     llm = LLMClient(settings)
+
+    def _regenerate(job_id: str) -> None:
+        """Перегенерация = повторная постановка workflow в очередь ComfyUI."""
+        job = db.fetch_job(job_id)
+        prompt = str(job["photo_prompt"] or "") if job is not None else ""
+        workflow = render_workflow(
+            Path(settings.comfyui_workflow_template), job_id, prompt,
+            settings.comfyui_workflow_dir,
+        )
+        _node1_call(settings, str(workflow))
+
     orchestrator = Orchestrator(
         db=db,
         parser=TrendParser(settings),
@@ -258,12 +308,14 @@ def main() -> None:
         prompter=PromptEngineer(llm, db, niche=settings.content_niche),
         evaluator=QualityEvaluator(
             llm, db,
-            regenerate=lambda job_id: _node1_call(settings, "regenerate", job_id),
+            regenerate=_regenerate,
             max_retries=settings.evaluator_max_retries,
         ),
         publisher=Publisher(settings, db),
-        submit=lambda job_id, vp, pp: _node1_call(settings, "submit", job_id, vp, pp),
+        submit=lambda job_id, wf_path: _node1_call(settings, wf_path),
         niche=settings.content_niche,
+        workflow_template=settings.comfyui_workflow_template,
+        workflow_dir=settings.comfyui_workflow_dir,
     )
     orchestrator.run_once(trigger_job_id=parsed.trigger)
     db.close()
