@@ -134,3 +134,63 @@ def test_add_metric_rejects_invalid_period(db: Database) -> None:
     """CHECK-ограничение: период только 1d / 1w / 1m."""
     with pytest.raises(sqlite3.IntegrityError):
         db.add_metric("post-1", "99x", likes=0, comments=0, reach=0)
+
+
+# --- P1: миграция legacy-БД ----------------------------------------------------
+
+LEGACY_MEDIA_JOBS_SCHEMA = """
+CREATE TABLE media_jobs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id     TEXT NOT NULL UNIQUE,
+    status     TEXT NOT NULL,
+    file_path  TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+
+def _make_legacy_db(db_path: Path) -> None:
+    """Создаёт файл БД со старой схемой media_jobs (без новых колонок)."""
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    conn.executescript(LEGACY_MEDIA_JOBS_SCHEMA)
+    conn.execute(
+        "INSERT INTO media_jobs (job_id, status) VALUES ('old-job', 'new')"
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_init_schema_migrates_legacy_media_jobs(tmp_path: Path) -> None:
+    """P1: legacy-БД без trend_title/trend_url/concept/prompts → ALTER TABLE."""
+    db_path = tmp_path / "legacy.db"
+    _make_legacy_db(db_path)
+
+    db = Database(str(db_path))
+    db.init_schema()
+
+    db.upsert_job(
+        "old-job", "planned",
+        concept="c", photo_prompt="p", trend_title="t", trend_url="u",
+    )
+    job = db.fetch_job("old-job")
+    assert job is not None
+    assert job["concept"] == "c"
+    assert job["photo_prompt"] == "p"
+    assert job["trend_title"] == "t"
+    assert job["trend_url"] == "u"
+    db.close()
+
+
+def test_init_schema_migration_is_idempotent(tmp_path: Path) -> None:
+    """Повторный init_schema на уже мигрированной БД не падает."""
+    db_path = tmp_path / "legacy.db"
+    _make_legacy_db(db_path)
+
+    db = Database(str(db_path))
+    db.init_schema()
+    db.init_schema()  # второй прогон — колонки уже есть
+    assert db.fetch_job("old-job") is not None
+    db.close()

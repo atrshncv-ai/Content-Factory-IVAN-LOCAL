@@ -212,3 +212,20 @@ MarkUDown MCP fallback.
 
 Урок зафиксирован: моки должны описывать реальный интерфейс внешнего
 инструмента — контракт CLI теперь покрыт регресс-тестом.
+
+[2026-07-12] Бэклог P0/P1/P2 — ВЫПОЛНЕНО ✓
+
+1. P0 (коллизия job_id): _job_id_from_trend теперь ключ = URL → title →
+   JSON тренда. Тренды crawl4ai/Jina без URL больше не схлопываются
+   в md5(""). 5 новых тестов (уникальность, стабильность, приоритет URL,
+   e2e: N url-less трендов → N заданий).
+2. P1 (миграция БД): db.py — _MIGRATIONS + _apply_migrations():
+   PRAGMA table_info → ALTER TABLE ADD COLUMN для concept/video_prompt/
+   photo_prompt/trend_title/trend_url. init_schema мигрирует legacy-БД
+   идемпотентно. 2 новых теста (legacy-схема + повторный прогон).
+3. P2 (техдолг): удалён мёртвый код (markudown_command из Settings и
+   .env.example, _TREND_URLS из parser.py); asyncio.get_event_loop()
+   заменён на asyncio.run(); crawl4ai>=0.9.1 добавлен в requirements.txt
+   (agent-reach не используется — это Jina Reader через urllib).
+4. Качество: pytest 80/80 passed, mypy 0 ошибок (23 файла).
+   TDD: красная фаза (3 failed) → зелёная.

@@ -102,8 +102,16 @@ class JobPrompter(Protocol):
 
 
 def _job_id_from_trend(trend: dict[str, object]) -> str:
-    """Детерминированный job_id из URL тренда (md5 — стабилен между процессами)."""
-    digest = hashlib.md5(str(trend.get("url", "")).encode("utf-8")).hexdigest()[:8]
+    """Детерминированный job_id из тренда (md5 — стабилен между процессами).
+
+    Ключ: URL → title → весь JSON тренда. Fallback-источники (crawl4ai/Jina)
+    часто отдают пустой URL — без fallback на title все такие тренды
+    схлопывались бы в один id (md5 пустой строки).
+    """
+    key = str(trend.get("url") or "") or str(trend.get("title") or "")
+    if not key:
+        key = json.dumps(trend, sort_keys=True, ensure_ascii=False, default=str)
+    digest = hashlib.md5(key.encode("utf-8")).hexdigest()[:8]
     return f"trend-{digest}"
 
 

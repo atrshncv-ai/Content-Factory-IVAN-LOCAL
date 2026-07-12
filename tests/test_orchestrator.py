@@ -17,7 +17,12 @@ from typing import Any
 import pytest
 
 from core.db import Database
-from core.orchestrator import PROMPT_PLACEHOLDER, Orchestrator, _build_node1_command
+from core.orchestrator import (
+    PROMPT_PLACEHOLDER,
+    Orchestrator,
+    _build_node1_command,
+    _job_id_from_trend,
+)
 from core.publisher import PublishError
 from tests.conftest import IsolatedSettings
 
@@ -347,3 +352,50 @@ def test_tick_continues_on_agent_error(db: Database, tmp_path: Path, media: Path
     bad = db.fetch_job("job-bad")
     assert good is not None and good["status"] == "published"
     assert bad is not None and bad["status"] == "approved"  # ждёт следующего тика
+
+
+# --- P0: уникальность job_id для трендов без URL -------------------------------
+
+
+def test_job_id_from_url_is_stable() -> None:
+    """Тренд с URL → детерминированный id (одинаковый между процессами)."""
+    trend: dict[str, object] = {"title": "A", "url": "https://ig.example/p/1"}
+    assert _job_id_from_trend(trend) == _job_id_from_trend(dict(trend))
+    assert _job_id_from_trend(trend).startswith("trend-")
+
+
+def test_job_id_no_collision_for_url_less_trends() -> None:
+    """P0: тренды без URL (crawl4ai/Jina) НЕ должны схлопываться в один id."""
+    trends: list[dict[str, object]] = [
+        {"title": "Morning routines", "url": ""},
+        {"title": "AI tools for creators", "url": ""},
+        {"title": "Minimalist desk setup", "url": ""},
+    ]
+    ids = [_job_id_from_trend(t) for t in trends]
+    assert len(set(ids)) == 3, f"collision: {ids}"
+
+
+def test_job_id_fallback_to_title_is_stable() -> None:
+    """Одинаковый title без URL → одинаковый id (дедупликация повторов)."""
+    trend2: dict[str, object] = {"title": "Same trend", "url": ""}
+    assert _job_id_from_trend(trend2) == _job_id_from_trend(dict(trend2))
+
+
+def test_job_id_url_takes_priority_over_title() -> None:
+    """URL — первичный ключ: разные title с одним URL → один id (это один пост)."""
+    a: dict[str, object] = {"title": "Title A", "url": "https://ig.example/p/9"}
+    b: dict[str, object] = {"title": "Title B", "url": "https://ig.example/p/9"}
+    assert _job_id_from_trend(a) == _job_id_from_trend(b)
+
+
+def test_url_less_trends_create_distinct_jobs(db: Database, tmp_path: Path) -> None:
+    """E2E регресс: N трендов без URL → N отдельных заданий на доске."""
+    parser = _FakeParser([
+        {"title": "Trend one", "url": "", "engagement": 10, "source": "jina"},
+        {"title": "Trend two", "url": "", "engagement": 20, "source": "jina"},
+    ])
+    summary = make_orchestrator(db, tmp_path, parser=parser).run_once()
+    assert summary["created"] == 2
+    jobs = db.fetch_jobs_by_status("new")
+    assert len(jobs) == 2
+    assert len({j["job_id"] for j in jobs}) == 2

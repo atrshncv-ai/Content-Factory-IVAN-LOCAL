@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 """
 
+# Колонки, добавленные после первой версии схемы. CREATE TABLE IF NOT EXISTS
+# не изменяет существующую таблицу, поэтому для legacy-БД (data/factory.db
+# в проде) колонки добавляются через ALTER TABLE при init_schema.
+_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("media_jobs", "concept", "TEXT"),
+    ("media_jobs", "video_prompt", "TEXT"),
+    ("media_jobs", "photo_prompt", "TEXT"),
+    ("media_jobs", "trend_title", "TEXT"),
+    ("media_jobs", "trend_url", "TEXT"),
+]
+
 
 class Database:
     """Операционная БД: логи, медиа-задания, метрики.
@@ -72,9 +83,24 @@ class Database:
         self._lock = threading.Lock()
 
     def init_schema(self) -> None:
-        """Создаёт таблицы, если их ещё нет (идемпотентно)."""
+        """Создаёт таблицы, если их ещё нет, и мигрирует legacy-схему (идемпотентно)."""
         with self._lock, self._conn:
             self._conn.executescript(SCHEMA)
+            self._apply_migrations()
+
+    def _apply_migrations(self) -> None:
+        """Добавляет недостающие колонки в существующие таблицы (legacy-БД).
+
+        PRAGMA table_info → если колонки нет, ALTER TABLE ADD COLUMN.
+        Вызывать только под self._lock внутри транзакции.
+        """
+        for table, column, column_type in _MIGRATIONS:
+            cur = self._conn.execute(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in cur.fetchall()}
+            if column not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {column_type}"
+                )
 
     # --- Логи ------------------------------------------------------------------
 

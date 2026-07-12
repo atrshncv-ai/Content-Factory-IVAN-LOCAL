@@ -20,12 +20,6 @@ from core.config import Settings
 
 DEFAULT_LIMIT = 10
 
-# Страницы для краулинга трендов (curl4ai / Jina fallback)
-_TREND_URLS = [
-    "https://www.instagram.com/explore/tags/{query}/",
-    "https://www.google.com/search?q=instagram+trending+reels+{query}&tbm=isch",
-]
-
 
 class ParserUnavailableError(RuntimeError):
     """Недоступны все источники трендов в fallback-цепочке."""
@@ -131,11 +125,8 @@ class TrendParser:
     def _from_crawl4ai(self, query: str, limit: int) -> list[dict[str, object]]:
         """Fallback: web-crawling через crawl4ai (async, без API-ключа)."""
         url = f"https://www.google.com/search?q=instagram+trending+reels+{query}"
-        # crawl4ai требует async — запускаем в изоляции
-        result = asyncio.get_event_loop().run_until_complete(
-            self._crawl4ai_fetch(url, limit)
-        )
-        return result
+        # crawl4ai требует async — asyncio.run создаёт изолированный event loop
+        return asyncio.run(self._crawl4ai_fetch(url, limit))
 
     async def _crawl4ai_fetch(self, url: str, limit: int) -> list[dict[str, object]]:
         """Асинхронный краулинг одной страницы."""

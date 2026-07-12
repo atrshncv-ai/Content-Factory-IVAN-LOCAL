@@ -23,7 +23,6 @@ class Settings(BaseSettings):
         db_path: Путь к файлу операционной БД SQLite.
         scrape_creators_api_key: Ключ Scrape Creators API (primary-парсер).
         scrape_creators_base_url: Базовый URL Scrape Creators API.
-        markudown_command: Команда запуска MarkItDown (fallback-парсер).
         shared_folder: Локальный путь к Shared Folder (шаринг с Node 1).
         webhook_host: Интерфейс Webhook-приёмника.
         webhook_port: Порт Webhook-приёмника.
@@ -54,7 +53,6 @@ class Settings(BaseSettings):
 
     scrape_creators_api_key: str | None = None
     scrape_creators_base_url: str = "https://api.scrapecreators.com/v1"
-    markudown_command: str = "markitdown"
 
     shared_folder: str = "shared"
     webhook_host: str = "0.0.0.0"
