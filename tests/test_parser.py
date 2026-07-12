@@ -1,7 +1,7 @@
 """Тесты субагента «Парсер» (core.parser).
 
 Покрывают fallback-цепочку сбора трендов:
-Scrape Creators API (primary) → MarkUDown MCP (fallback).
+Scrape Creators API (primary) → crawl4ai (fallback) → Jina Reader (last resort).
 Сеть и subprocess не используются — моки на швах _http_get_json / _run_command.
 """
 import json
@@ -27,32 +27,50 @@ class _FakeHTTP:
         return self._payload
 
 
-class _FakeRunner:
-    """Подмена _run_command: возвращает stdout или падает, записывает команды."""
+class _FakeHTTPText:
+    """Подмена _http_get_text: отдаёт текст или падает."""
 
-    def __init__(self, stdout: str = "", error: Exception | None = None) -> None:
-        self._stdout = stdout
+    def __init__(self, text: str = "", error: Exception | None = None) -> None:
+        self._text = text
         self._error = error
-        self.calls: list[list[str]] = []
+        self.calls: list[str] = []
 
-    def __call__(self, command: list[str]) -> str:
-        self.calls.append(command)
+    def __call__(self, url: str, headers: dict[str, str] | None = None) -> str:
+        self.calls.append(url)
         if self._error:
             raise self._error
-        return self._stdout
+        return self._text
+
+
+class _FakeCrawl4AI:
+    """Подмена _crawl4ai_fetch: возвращает список трендов."""
+
+    def __init__(self, trends: list[dict] | None = None, error: Exception | None = None) -> None:
+        self._trends = trends or []
+        self._error = error
+        self.calls: list[str] = []
+
+    async def __call__(self, url: str, limit: int) -> list[dict]:
+        self.calls.append(url)
+        if self._error:
+            raise self._error
+        return self._trends
 
 
 def make_parser(
     monkeypatch: pytest.MonkeyPatch,
     http: _FakeHTTP | None = None,
-    runner: _FakeRunner | None = None,
+    http_text: _FakeHTTPText | None = None,
+    crawl4ai: _FakeCrawl4AI | None = None,
     **env: str,
 ) -> TrendParser:
     """TrendParser с подменёнными швами I/O и заданными env-переменными."""
     if http is not None:
         monkeypatch.setattr("core.parser._http_get_json", http)
-    if runner is not None:
-        monkeypatch.setattr("core.parser._run_command", runner)
+    if http_text is not None:
+        monkeypatch.setattr("core.parser._http_get_text", http_text)
+    if crawl4ai is not None:
+        monkeypatch.setattr("core.parser.TrendParser._crawl4ai_fetch", crawl4ai)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     return TrendParser(IsolatedSettings())
@@ -64,9 +82,19 @@ SC_PAYLOAD = {
         {"title": "POV trend", "url": "https://ig.example/p/2", "likes": 800},
     ]
 }
-MD_PAYLOAD = json.dumps([
-    {"title": "Local trend", "url": "https://ig.example/p/9", "engagement": 42},
-])
+
+CRAWL4AI_TRENDS = [
+    {"title": "Crawled trend 1", "url": "https://ig.example/p/3", "engagement": 55, "source": "crawl4ai"},
+    {"title": "Crawled trend 2", "url": "https://ig.example/p/4", "engagement": 33, "source": "crawl4ai"},
+]
+
+JINA_TEXT = """# Instagram Explore: fitness
+## Popular Posts
+### #fitnessmotivation
+Check out this trending reel about workout routines.
+### #homeworkout
+Quick 15-minute exercises going viral.
+"""
 
 
 # --- Primary: Scrape Creators API --------------------------------------------
@@ -108,39 +136,64 @@ def test_primary_limit_is_applied(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_primary_skipped_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Без ключа primary не дёргается — сразу fallback (как в build_providers)."""
+    """Без ключа primary не дёргается — сразу fallback (crawl4ai)."""
     http = _FakeHTTP(SC_PAYLOAD)
-    runner = _FakeRunner(MD_PAYLOAD)
-    parser = make_parser(monkeypatch, http=http, runner=runner)
+    crawl = _FakeCrawl4AI(CRAWL4AI_TRENDS)
+    parser = make_parser(monkeypatch, http=http, crawl4ai=crawl)
     trends = parser.fetch_trends("fitness")
     assert http.calls == []
-    assert {t["source"] for t in trends} == {"markudown"}
+    assert {t["source"] for t in trends} == {"crawl4ai"}
 
 
-# --- Fallback: MarkUDown MCP ---------------------------------------------------
+# --- Fallback 1: crawl4ai ----------------------------------------------------
 
-def test_fallback_to_markudown_when_primary_fails(
+def test_fallback_to_crawl4ai_when_primary_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """При падении API парсер переключается на MarkUDown (CLI-syscall)."""
+    """При падении API парсер переключается на crawl4ai."""
     http = _FakeHTTP(error=ConnectionError("api down"))
-    runner = _FakeRunner(MD_PAYLOAD)
-    parser = make_parser(
-        monkeypatch, http=http, runner=runner, SCRAPE_CREATORS_API_KEY="sc-key",
-    )
+    crawl = _FakeCrawl4AI(CRAWL4AI_TRENDS)
+    parser = make_parser(monkeypatch, http=http, crawl4ai=crawl, SCRAPE_CREATORS_API_KEY="sc-key")
     trends = parser.fetch_trends("fitness")
-    assert [t["source"] for t in trends] == ["markudown"]
-    assert trends[0]["title"] == "Local trend"
-    assert trends[0]["engagement"] == 42
-    assert runner.calls and "markudown" in runner.calls[0][0]
+    assert [t["source"] for t in trends] == ["crawl4ai", "crawl4ai"]
+    assert trends[0]["title"] == "Crawled trend 1"
+    assert trends[0]["engagement"] == 55
+    assert len(crawl.calls) == 1
 
 
-def test_raises_when_both_paths_fail(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Если пали и API, и MarkUDown — честное исключение."""
+def test_crawl4ai_skipped_without_key_and_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Без ключа API и при падении crawl4ai — переход на Jina."""
+    http_text = _FakeHTTPText(JINA_TEXT)
+    crawl = _FakeCrawl4AI(error=OSError("browser not available"))
+    parser = make_parser(monkeypatch, http_text=http_text, crawl4ai=crawl)
+    trends = parser.fetch_trends("fitness")
+    assert len(trends) > 0
+    assert all(t["source"] == "jina" for t in trends)
+
+
+# --- Fallback 2: Jina Reader -------------------------------------------------
+
+def test_fallback_to_jina_when_all_others_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """При падении API и crawl4ai — парсер использует Jina Reader."""
+    http = _FakeHTTP(error=ConnectionError("api down"))
+    http_text = _FakeHTTPText(JINA_TEXT)
+    crawl = _FakeCrawl4AI(error=OSError("browser not available"))
+    parser = make_parser(monkeypatch, http=http, http_text=http_text, crawl4ai=crawl, SCRAPE_CREATORS_API_KEY="sc-key")
+    trends = parser.fetch_trends("fitness")
+    assert len(trends) > 0
+    assert all(t["source"] == "jina" for t in trends)
+    assert http_text.calls  # Jina был вызван
+
+
+def test_raises_when_all_paths_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Если пали все три источника — честное исключение."""
     parser = make_parser(
         monkeypatch,
         http=_FakeHTTP(error=ConnectionError("api down")),
-        runner=_FakeRunner(error=OSError("mcp down")),
+        http_text=_FakeHTTPText(error=OSError("network down")),
+        crawl4ai=_FakeCrawl4AI(error=OSError("browser down")),
         SCRAPE_CREATORS_API_KEY="sc-key",
     )
     with pytest.raises(ParserUnavailableError):

@@ -5,12 +5,14 @@
 каждое задание двигается максимум на один шаг, затем чистый выход
 (Clean Context, exit 0). Повтор — на следующем cron-тике или Webhook'е.
 
-Стадии:  new → generating →(Node 1, Webhook)→ done →(Evaluator)→ approved
-         →(Publisher)→ published.   Терминальные: published / failed / error.
+Стадии:  new → planned → ready_for_render → generating →(Node 1, Webhook)
+         → done →(Evaluator)→ approved →(Publisher)→ published.
+         Терминальные: published / failed / error.
 
 Маршрутизация:
-  - cron-тик:  done → Evaluator | approved → Publisher | new → Node 1,
-               и ТОЛЬКО при пустой доске — Parser создаёт new (backpressure).
+  - cron-тик:  done → Evaluator | approved → Publisher | new → Planner,
+               planned → Prompter | ready_for_render → Node 1.
+               ТОЛЬКО при пустой доске — Parser создаёт new (backpressure).
   - webhook:   --trigger <job_id> оценивает ровно одно задание.
 
 Отказоустойчивость: каждый job в try/except — падение субагента пишется
@@ -31,27 +33,39 @@ from core.db import Database
 from core.evaluator import QualityEvaluator
 from core.llm import LLMClient
 from core.parser import TrendParser
+from core.planner import ContentPlanner
+from core.prompter import PromptEngineer
 from core.publisher import Publisher
 
-ACTIVE_STATUSES = ("new", "generating", "done", "approved", "regenerating")
+ACTIVE_STATUSES = (
+    "new", "planned", "ready_for_render",
+    "generating", "done", "approved", "regenerating",
+)
 
 
 class TrendSource(Protocol):
     """Интерфейс Парсера для Оркестратора."""
-
     def fetch_trends(self, query: str, limit: int = 10) -> list[dict[str, object]]: ...
 
 
 class JobEvaluator(Protocol):
     """Интерфейс Контролёра Качества для Оркестратора."""
-
     def evaluate_job(self, job_id: str) -> dict[str, Any]: ...
 
 
 class PostPublisher(Protocol):
     """Интерфейс SMM-Паблишера для Оркестратора."""
-
     def publish(self, media_path: str, caption: str) -> str: ...
+
+
+class JobPlanner(Protocol):
+    """Интерфейс Сценариста для Оркестратора."""
+    def plan_job(self, job_id: str) -> dict[str, str]: ...
+
+
+class JobPrompter(Protocol):
+    """Интерфейс Промпт-инженера для Оркестратора."""
+    def create_prompts(self, job_id: str) -> dict[str, str]: ...
 
 
 def _job_id_from_trend(trend: dict[str, object]) -> str:
@@ -66,19 +80,23 @@ class Orchestrator:
     Args:
         db: Операционная БД (доска + журнал).
         parser: Парсер трендов (создание новых заданий).
+        planner: Сценарист (new → planned).
+        prompter: Промпт-инженер (planned → ready_for_render).
         evaluator: Контролёр Качества (done → approved/failed).
         publisher: SMM-Паблишер (approved → published).
         submit: Отправка задания на Node 1 (cli-anything-comfyui).
         niche: Тематика для Парсера.
 
     Example:
-        >>> summary = Orchestrator(db, parser, evaluator, publisher, submit).run_once()
+        >>> summary = Orchestrator(db, parser, planner, prompter, evaluator, publisher, submit).run_once()
     """
 
     def __init__(
         self,
         db: Database,
         parser: TrendSource,
+        planner: JobPlanner,
+        prompter: JobPrompter,
         evaluator: JobEvaluator,
         publisher: PostPublisher,
         submit: Callable[[str], None],
@@ -86,16 +104,19 @@ class Orchestrator:
     ) -> None:
         self._db = db
         self._parser = parser
+        self._planner = planner
+        self._prompter = prompter
         self._evaluator = evaluator
         self._publisher = publisher
         self._submit = submit
         self._niche = niche
 
     def run_once(self, trigger_job_id: str | None = None) -> dict[str, int]:
-        """Один проход по доске. Returns: summary {evaluated, published,
-        submitted, created, errors} — процесс завершается сразу после."""
-        summary = {"evaluated": 0, "published": 0, "submitted": 0,
-                   "created": 0, "errors": 0}
+        """Один проход по доске. Returns: summary — процесс завершается сразу после."""
+        summary: dict[str, int] = {
+            "created": 0, "planned": 0, "prompts": 0,
+            "submitted": 0, "evaluated": 0, "published": 0, "errors": 0,
+        }
         if trigger_job_id is not None:
             self._evaluate_triggered(trigger_job_id, summary)
         else:
@@ -122,9 +143,12 @@ class Orchestrator:
 
     def _cron_tick(self, summary: dict[str, int]) -> None:
         """Cron-маршрут: снимки очередей → один шаг по каждой стадии."""
+        # Снимки ДО мутаций (Clean Context: одно задание = один шаг)
         done_jobs = self._db.fetch_jobs_by_status("done")
         approved_jobs = self._db.fetch_jobs_by_status("approved")
         new_jobs = self._db.fetch_jobs_by_status("new")
+        planned_jobs = self._db.fetch_jobs_by_status("planned")
+        ready_jobs = self._db.fetch_jobs_by_status("ready_for_render")
 
         for job in done_jobs:
             self._guard(summary, "evaluated", job["job_id"],
@@ -132,9 +156,15 @@ class Orchestrator:
         for job in approved_jobs:
             self._guard(summary, "published", job["job_id"],
                         partial(self._publish_approved, job))
-        for job in new_jobs:
+        for job in ready_jobs:
             self._guard(summary, "submitted", job["job_id"],
-                        partial(self._submit_new, job))
+                        partial(self._submit_ready, job))
+        for job in planned_jobs:
+            self._guard(summary, "prompts", job["job_id"],
+                        partial(self._prompter.create_prompts, job["job_id"]))
+        for job in new_jobs:
+            self._guard(summary, "planned", job["job_id"],
+                        partial(self._planner.plan_job, job["job_id"]))
 
         if not any(self._db.fetch_jobs_by_status(s) for s in ACTIVE_STATUSES):
             self._create_from_trends(summary)
@@ -152,11 +182,12 @@ class Orchestrator:
 
     def _publish_approved(self, job: Any) -> None:
         """approved → published: постинг через CLI, затем фиксация статуса."""
-        self._publisher.publish(job["file_path"], self._caption(job["job_id"]))
+        caption = job["concept"] or self._caption(job["job_id"])
+        self._publisher.publish(job["file_path"], caption)
         self._db.upsert_job(job["job_id"], "published")
 
-    def _submit_new(self, job: Any) -> None:
-        """new → generating: отправка на Node 1, затем фиксация статуса."""
+    def _submit_ready(self, job: Any) -> None:
+        """ready_for_render → generating: отправка промптов на Node 1."""
         self._submit(job["job_id"])
         self._db.upsert_job(job["job_id"], "generating")
 
@@ -174,7 +205,7 @@ class Orchestrator:
             self._db.log("ERROR", "orchestrator", f"{counter} {job_id}: {exc}")
 
     def _caption(self, job_id: str) -> str:
-        """Временная подпись к посту (до подключения Планировщика)."""
+        """Временная подпись к посту (если нет концепции)."""
         return f"{job_id} — AI контент #{self._niche}"
 
 
@@ -194,11 +225,14 @@ def main() -> None:
     settings = Settings()
     db = Database(settings.db_path)
     db.init_schema()
+    llm = LLMClient(settings)
     orchestrator = Orchestrator(
         db=db,
         parser=TrendParser(settings),
+        planner=ContentPlanner(llm, db, niche=settings.content_niche),
+        prompter=PromptEngineer(llm, db, niche=settings.content_niche),
         evaluator=QualityEvaluator(
-            LLMClient(settings), db,
+            llm, db,
             regenerate=lambda job_id: _node1_call(settings, "regenerate", job_id),
             max_retries=settings.evaluator_max_retries,
         ),

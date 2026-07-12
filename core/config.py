@@ -23,7 +23,7 @@ class Settings(BaseSettings):
         db_path: Путь к файлу операционной БД SQLite.
         scrape_creators_api_key: Ключ Scrape Creators API (primary-парсер).
         scrape_creators_base_url: Базовый URL Scrape Creators API.
-        markudown_command: Команда запуска MarkUDown MCP (fallback-парсер).
+        markudown_command: Команда запуска MarkItDown (fallback-парсер).
         shared_folder: Локальный путь к Shared Folder (шаринг с Node 1).
         webhook_host: Интерфейс Webhook-приёмника.
         webhook_port: Порт Webhook-приёмника.
@@ -35,10 +35,12 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    opencode_api_key: str | None = None
     openrouter_api_key: str | None = None
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 
+    opencode_model: str = "deepseek-v4-flash-free"
     openrouter_model: str = "anthropic/claude-3.5-sonnet"
     openai_model: str = "gpt-4o-mini"
     anthropic_model: str = "claude-3-5-sonnet-latest"
@@ -50,7 +52,7 @@ class Settings(BaseSettings):
 
     scrape_creators_api_key: str | None = None
     scrape_creators_base_url: str = "https://api.scrapecreators.com/v1"
-    markudown_command: str = "markudown"
+    markudown_command: str = "markitdown"
 
     shared_folder: str = "shared"
     webhook_host: str = "0.0.0.0"

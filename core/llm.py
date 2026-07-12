@@ -45,6 +45,12 @@ def build_providers(settings: Settings) -> list[Provider]:
         Упорядоченный список провайдеров от primary к локальному fallback.
     """
     chain: list[Provider] = []
+    # OpenCode Zen — Primary (DeepSeek V4 flash free)
+    if settings.opencode_api_key:
+        chain.append(Provider(
+            "opencode", "https://opencode.ai/zen/v1",
+            settings.opencode_api_key, settings.opencode_model,
+        ))
     if settings.openrouter_api_key:
         chain.append(Provider(
             "openrouter", "https://openrouter.ai/api/v1",

@@ -1,14 +1,16 @@
 """Субагент «Парсер» (Trend Analyst) — сбор трендов с fallback-цепочкой.
 
-Primary:  Scrape Creators API (REST, ключ из .env).
-Fallback: MarkUDown MCP — вызывается как внешняя CLI-утилита (syscall),
-          согласно AGENTS.md падежная логика вынесена за пределы агента.
+Цепочка источников (по приоритету):
+  1. Scrape Creators API  — REST, ключ из .env (primary).
+  2. crawl4ai             — web-crawling трендовых страниц.
+  3. Agent-Reach / Jina   — чтение страниц через Jina Reader (last resort).
 
 Оба источника нормализуются в единую схему тренда
 {title, url, engagement, source}, готовую к записи в Graphify/Vector DB.
-Весь I/O спрятан за двумя швами (_http_get_json, _run_command) —
+Весь I/O спрятан за швами (_http_get_json, _run_command) —
 это граница мокирования в тестах и единая точка отказоустойчивости.
 """
+import asyncio
 import json
 import subprocess
 import urllib.parse
@@ -18,9 +20,15 @@ from core.config import Settings
 
 DEFAULT_LIMIT = 10
 
+# Страницы для краулинга трендов (curl4ai / Jina fallback)
+_TREND_URLS = [
+    "https://www.instagram.com/explore/tags/{query}/",
+    "https://www.google.com/search?q=instagram+trending+reels+{query}&tbm=isch",
+]
+
 
 class ParserUnavailableError(RuntimeError):
-    """Недоступны оба источника трендов: Scrape Creators API и MarkUDown."""
+    """Недоступны все источники трендов в fallback-цепочке."""
 
 
 def _http_get_json(url: str, headers: dict[str, str]) -> dict:
@@ -28,6 +36,14 @@ def _http_get_json(url: str, headers: dict[str, str]) -> dict:
     request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _http_get_text(url: str, headers: dict[str, str] | None = None) -> str:
+    """GET-запрос, возвращающий текст (HTML/Markdown)."""
+    req_headers = headers or {"User-Agent": "Mozilla/5.0"}
+    request = urllib.request.Request(url, headers=req_headers)
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read().decode("utf-8", errors="replace")
 
 
 def _run_command(command: list[str]) -> str:
@@ -46,7 +62,7 @@ def _run_command(command: list[str]) -> str:
 class TrendParser:
     """Субагент «Trend Analyst»: собирает тренды по нише.
 
-    Порядок попыток: Scrape Creators API → MarkUDown MCP.
+    Цепочка попыток: Scrape Creators API → crawl4ai → Jina Reader.
     При отсутствии API-ключа primary пропускается сразу.
 
     Example:
@@ -65,19 +81,32 @@ class TrendParser:
             limit: Максимум трендов в ответе.
 
         Raises:
-            ParserUnavailableError: оба источника недоступны.
+            ParserUnavailableError: все источники недоступны.
         """
         errors: list[str] = []
+
+        # 1. Primary: Scrape Creators API
         if self._settings.scrape_creators_api_key:
             try:
                 return self._from_scrape_creators(query, limit)
             except Exception as exc:
                 errors.append(f"scrape_creators: {exc}")
+
+        # 2. Fallback: crawl4ai
         try:
-            return self._from_markudown(query, limit)
+            return self._from_crawl4ai(query, limit)
         except Exception as exc:
-            errors.append(f"markudown: {exc}")
+            errors.append(f"crawl4ai: {exc}")
+
+        # 3. Last resort: Jina Reader (бесплатный, без ключа)
+        try:
+            return self._from_jina(query, limit)
+        except Exception as exc:
+            errors.append(f"jina: {exc}")
+
         raise ParserUnavailableError(" | ".join(errors) or "нет доступных источников")
+
+    # --- Источники ---------------------------------------------------------------
 
     def _from_scrape_creators(self, query: str, limit: int) -> list[dict[str, object]]:
         """Primary-путь: REST API Scrape Creators."""
@@ -99,20 +128,55 @@ class TrendParser:
             for item in raw_items[:limit]
         ]
 
-    def _from_markudown(self, query: str, limit: int) -> list[dict[str, object]]:
-        """Fallback-путь: локальный MarkUDown MCP как CLI-syscall."""
-        stdout = _run_command([
-            self._settings.markudown_command, "trends", query,
-            "--json", "--limit", str(limit),
-        ])
-        raw = json.loads(stdout)
-        raw_items = raw.get("trends", []) if isinstance(raw, dict) else raw
-        return [
-            {
-                "title": str(item.get("title", "")),
-                "url": str(item.get("url", "")),
-                "engagement": int(item.get("engagement", 0)),
-                "source": "markudown",
-            }
-            for item in raw_items[:limit]
-        ]
+    def _from_crawl4ai(self, query: str, limit: int) -> list[dict[str, object]]:
+        """Fallback: web-crawling через crawl4ai (async, без API-ключа)."""
+        url = f"https://www.google.com/search?q=instagram+trending+reels+{query}"
+        # crawl4ai требует async — запускаем в изоляции
+        result = asyncio.get_event_loop().run_until_complete(
+            self._crawl4ai_fetch(url, limit)
+        )
+        return result
+
+    async def _crawl4ai_fetch(self, url: str, limit: int) -> list[dict[str, object]]:
+        """Асинхронный краулинг одной страницы."""
+        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig  # lazy import
+
+        config = CrawlerRunConfig()
+        async with AsyncWebCrawler() as crawler:
+            page = await crawler.arun(url, config=config)
+            if not page.success:
+                raise RuntimeError(f"crawl4ai: fetch failed for {url}")
+            md = page.markdown
+            raw = md.raw_markdown if hasattr(md, "raw_markdown") else str(md)
+            return self._parse_html_trends(raw, limit, "crawl4ai")
+
+    def _from_jina(self, query: str, limit: int) -> list[dict[str, object]]:
+        """Last resort: чтение страницы через Jina Reader (бесплатный proxy)."""
+        # Используем Google Search вместо Instagram (Instagram блокирует прямой доступ)
+        target = f"https://www.google.com/search?q=instagram+trending+reels+{query}"
+        jina_url = f"https://r.jina.ai/{target}"
+        text = _http_get_text(jina_url, {"Accept": "text/plain"})
+        return self._parse_html_trends(text, limit, "jina")
+
+    # --- Парсинг ----------------------------------------------------------------
+
+    @staticmethod
+    def _parse_html_trends(text: str, limit: int, source: str) -> list[dict[str, object]]:
+        """Извлекает тренды из текста/HTML через простой regex-hack."""
+        import re
+
+        trends: list[dict[str, object]] = []
+        # Ищем заголовки h2/h3 или строки с #hashtag
+        headings = re.findall(r"#{1,3}\s+(.+?)(?:\n|$)", text)
+        hashtags = re.findall(r"#(\w+)", text)
+        links = re.findall(r"\[([^\]]+)\]\((https?://[^\)]+)\)", text)
+
+        for title in headings[:limit]:
+            trends.append({"title": title.strip(), "url": "", "engagement": 0, "source": source})
+        if not trends:
+            for tag in hashtags[:limit]:
+                trends.append({"title": f"#{tag}", "url": "", "engagement": 0, "source": source})
+        if not trends:
+            for title, url in links[:limit]:
+                trends.append({"title": title.strip(), "url": url, "engagement": 0, "source": source})
+        return trends

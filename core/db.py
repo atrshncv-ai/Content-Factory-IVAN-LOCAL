@@ -21,12 +21,15 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 
 CREATE TABLE IF NOT EXISTS media_jobs (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id     TEXT NOT NULL UNIQUE,
-    status     TEXT NOT NULL,
-    file_path  TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id       TEXT NOT NULL UNIQUE,
+    status       TEXT NOT NULL,
+    file_path    TEXT,
+    concept      TEXT,
+    video_prompt TEXT,
+    photo_prompt TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS metrics (
@@ -92,23 +95,34 @@ class Database:
 
     # --- Медиа-задания (Node 1) -------------------------------------------------
 
-    def upsert_job(self, job_id: str, status: str, file_path: str | None = None) -> None:
-        """Создаёт задание или обновляет его статус.
+    def upsert_job(
+        self,
+        job_id: str,
+        status: str,
+        file_path: str | None = None,
+        concept: str | None = None,
+        video_prompt: str | None = None,
+        photo_prompt: str | None = None,
+    ) -> None:
+        """Создаёт задание или обновляет его статус и данные.
 
-        `file_path` перезаписывается только если передан — повторный upsert
-        статуса не затирает уже сохранённый путь к файлу.
+        Поля concept/video_prompt/photo_prompt перезаписываются только если
+        переданы — повторный upsert статуса не затирает уже сохранённые данные.
         """
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO media_jobs (job_id, status, file_path)
-                VALUES (?, ?, ?)
+                INSERT INTO media_jobs (job_id, status, file_path, concept, video_prompt, photo_prompt)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     status = excluded.status,
                     file_path = COALESCE(excluded.file_path, media_jobs.file_path),
+                    concept = COALESCE(excluded.concept, media_jobs.concept),
+                    video_prompt = COALESCE(excluded.video_prompt, media_jobs.video_prompt),
+                    photo_prompt = COALESCE(excluded.photo_prompt, media_jobs.photo_prompt),
                     updated_at = datetime('now')
                 """,
-                (job_id, status, file_path),
+                (job_id, status, file_path, concept, video_prompt, photo_prompt),
             )
 
     def fetch_jobs_by_status(self, status: str) -> list[sqlite3.Row]:

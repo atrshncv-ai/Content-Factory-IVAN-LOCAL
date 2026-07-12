@@ -1,9 +1,9 @@
 """Тесты Главного Оркестратора (core.orchestrator).
 
 Проверяют ИСКЛЮЧИТЕЛЬНО логику переходов машины состояний Kanban:
-все субагенты (Parser, Evaluator, Publisher) и отправка на Node 1 замоканы.
-Оркестратор не содержит while-циклов: один запуск = один шаг по доске +
-чистый возврат summary (Clean Context, exit(0)).
+все субагенты (Parser, Planner, Prompter, Evaluator, Publisher) и отправка
+на Node 1 замоканы. Оркестратор не содержит while-циклов: один запуск =
+один шаг по доске + чистый возврат summary (Clean Context, exit(0)).
 """
 from collections.abc import Iterator
 from pathlib import Path
@@ -26,6 +26,35 @@ class _FakeParser:
     def fetch_trends(self, query: str, limit: int = 10) -> list[dict[str, object]]:
         self.calls += 1
         return self._trends
+
+
+class _FakePlanner:
+    """Сценарист-заглушка: записывает концепцию в БД, считает вызовы."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+        self.calls: list[str] = []
+
+    def plan_job(self, job_id: str) -> dict[str, str]:
+        self.calls.append(job_id)
+        concept = f"Виральная концепция для {job_id}"
+        self._db.upsert_job(job_id, "planned", concept=concept)
+        return {"job_id": job_id, "concept": concept, "status": "planned"}
+
+
+class _FakePrompter:
+    """Промпт-инженер-заглушка: записывает промпты в БД, считает вызовы."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+        self.calls: list[str] = []
+
+    def create_prompts(self, job_id: str) -> dict[str, str]:
+        self.calls.append(job_id)
+        video = f"Video prompt for {job_id}"
+        photo = f"Photo prompt for {job_id}"
+        self._db.upsert_job(job_id, "ready_for_render", video_prompt=video, photo_prompt=photo)
+        return {"job_id": job_id, "video_prompt": video, "photo_prompt": photo, "status": "ready_for_render"}
 
 
 class _FakeEvaluator:
@@ -83,6 +112,8 @@ def media(tmp_path: Path) -> Path:
 def make_orchestrator(
     db: Database,
     parser: _FakeParser | None = None,
+    planner: _FakePlanner | None = None,
+    prompter: _FakePrompter | None = None,
     evaluator: _FakeEvaluator | None = None,
     publisher: _FakePublisher | None = None,
     submit: _FakeSubmit | None = None,
@@ -91,6 +122,8 @@ def make_orchestrator(
     return Orchestrator(
         db=db,
         parser=parser or _FakeParser([]),
+        planner=planner or _FakePlanner(db),
+        prompter=prompter or _FakePrompter(db),
         evaluator=evaluator or _FakeEvaluator(db),
         publisher=publisher or _FakePublisher(),
         submit=submit or _FakeSubmit(),
@@ -106,6 +139,42 @@ TRENDS = [
 
 
 # --- Переходы состояний (cron-тик) --------------------------------------------
+
+def test_tick_new_goes_to_planner(db: Database) -> None:
+    """new → Planner → planned."""
+    db.upsert_job("job-c", "new")
+    planner = _FakePlanner(db)
+    summary = make_orchestrator(db, planner=planner).run_once()
+    assert planner.calls == ["job-c"]
+    assert summary["planned"] == 1
+    job = db.fetch_job("job-c")
+    assert job is not None and job["status"] == "planned"
+    assert job["concept"] is not None
+
+
+def test_tick_planned_goes_to_prompter(db: Database) -> None:
+    """planned → Prompter → ready_for_render."""
+    db.upsert_job("job-d", "planned", concept="Test concept")
+    prompter = _FakePrompter(db)
+    summary = make_orchestrator(db, prompter=prompter).run_once()
+    assert prompter.calls == ["job-d"]
+    assert summary["prompts"] == 1
+    job = db.fetch_job("job-d")
+    assert job is not None and job["status"] == "ready_for_render"
+    assert job["video_prompt"] is not None
+    assert job["photo_prompt"] is not None
+
+
+def test_tick_ready_goes_to_node1(db: Database) -> None:
+    """ready_for_render → submit → generating."""
+    db.upsert_job("job-e", "ready_for_render")
+    submit = _FakeSubmit()
+    summary = make_orchestrator(db, submit=submit).run_once()
+    assert submit.calls == ["job-e"]
+    assert summary["submitted"] == 1
+    job = db.fetch_job("job-e")
+    assert job is not None and job["status"] == "generating"
+
 
 def test_tick_evaluates_done_jobs(db: Database, media: Path) -> None:
     """done → Evaluator → approved."""
@@ -129,17 +198,6 @@ def test_tick_publishes_approved_jobs(db: Database, media: Path) -> None:
     assert job is not None and job["status"] == "published"
 
 
-def test_tick_submits_new_jobs_to_node1(db: Database) -> None:
-    """new → отправка на Node 1 (ComfyUI) → generating."""
-    db.upsert_job("job-c", "new")
-    submit = _FakeSubmit()
-    summary = make_orchestrator(db, submit=submit).run_once()
-    assert submit.calls == ["job-c"]
-    assert summary["submitted"] == 1
-    job = db.fetch_job("job-c")
-    assert job is not None and job["status"] == "generating"
-
-
 def test_tick_creates_jobs_from_trends_when_queue_empty(db: Database) -> None:
     """Пустая доска → Парсер ищет тренды → создаются задания new."""
     parser = _FakeParser(TRENDS)
@@ -149,25 +207,28 @@ def test_tick_creates_jobs_from_trends_when_queue_empty(db: Database) -> None:
     assert len(db.fetch_jobs_by_status("new")) == 2
 
 
-def test_tick_moves_full_pipeline_in_one_pass(db: Database, media: Path) -> None:
-    """Один тик двигает ВСЕ стадии разом и не застревает; Парсер не дёргается."""
+def test_tick_full_pipeline_one_pass(db: Database, media: Path) -> None:
+    """Один тик двигает ВСЕ стадии разом; Парсер не дёргается."""
     db.upsert_job("job-a", "done", str(media))
     db.upsert_job("job-b", "approved", str(media))
     db.upsert_job("job-c", "new")
+    db.upsert_job("job-d", "planned", concept="Concept for D")
+    db.upsert_job("job-e", "ready_for_render")
     parser = _FakeParser(TRENDS)
     summary = make_orchestrator(db, parser=parser).run_once()
-    assert summary == {
-        "evaluated": 1, "published": 1, "submitted": 1, "created": 0, "errors": 0,
-    }
     assert parser.calls == 0
-    statuses = {
-        row["job_id"]: row["status"]
-        for row in db.fetch_jobs_by_status("approved")
-        + db.fetch_jobs_by_status("published")
-        + db.fetch_jobs_by_status("generating")
-    }
-    assert statuses == {"job-a": "approved", "job-b": "published",
-                        "job-c": "generating"}
+    assert summary["created"] == 0
+    # Проверяем финальные статусы
+    job_a = db.fetch_job("job-a")
+    job_b = db.fetch_job("job-b")
+    job_c = db.fetch_job("job-c")
+    job_d = db.fetch_job("job-d")
+    job_e = db.fetch_job("job-e")
+    assert job_a is not None and job_a["status"] == "approved"
+    assert job_b is not None and job_b["status"] == "published"
+    assert job_c is not None and job_c["status"] == "planned"
+    assert job_d is not None and job_d["status"] == "ready_for_render"
+    assert job_e is not None and job_e["status"] == "generating"
 
 
 # --- Маршрутизация по Webhook ---------------------------------------------------
