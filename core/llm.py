@@ -9,13 +9,27 @@ OpenRouter → OpenAI → Anthropic → локальная LM Studio.
 (режим «вечнозеленого» контента). Все провайдеры вызываются через
 единый openai-SDK по OpenAI-совместимым эндпоинтам (Ponytail-минимализм:
 ноль собственных HTTP-клиентов и бойлерплейта).
+
+Headroom: при включении сжимает контекст (messages) перед отправкой
+в LLM, сохраняя fallback на оригинальные сообщения при сбое компрессора.
 """
+import logging
 from dataclasses import dataclass
+from typing import Any
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 from core.config import Settings
+
+logger = logging.getLogger(__name__)
+
+headroom_compress: Any
+
+try:
+    from headroom import compress as headroom_compress
+except ImportError:
+    headroom_compress = None
 
 
 class LLMUnavailableError(RuntimeError):
@@ -72,6 +86,36 @@ def build_providers(settings: Settings) -> list[Provider]:
     return chain
 
 
+def _compress_messages(
+    messages: list[ChatCompletionMessageParam],
+    model: str,
+    enabled: bool,
+    headroom_model: str | None,
+) -> list[ChatCompletionMessageParam]:
+    """Сжимает контекст через Headroom; при сбое возвращает оригинал.
+
+    Args:
+        messages: Исходные сообщения для LLM.
+        model: Модель текущего провайдера (fallback-модель для Headroom).
+        enabled: Флаг включения сжатия в настройках.
+        headroom_model: Явная модель сжатия; если None — используется model.
+
+    Returns:
+        Сжатые сообщения или исходные, если сжатие выключено/недоступно/упало.
+    """
+    if not enabled or not messages or headroom_compress is None:
+        return messages
+    target_model = headroom_model or model
+    try:
+        compressed = headroom_compress(messages, model=target_model)
+        if isinstance(compressed, list):
+            return compressed
+        logger.warning("Headroom вернул не-список, используем оригинальные сообщения")
+    except Exception as exc:
+        logger.warning("Headroom compression failed: %s", exc)
+    return messages
+
+
 class LLMClient:
     """Клиент с ротацией ключей: перебирает цепочку до первого успеха.
 
@@ -86,6 +130,7 @@ class LLMClient:
     def __init__(self, settings: Settings) -> None:
         """Строит fallback-цепочку один раз при инициализации."""
         self._chain = build_providers(settings)
+        self._settings = settings
 
     def chat(self, messages: list[ChatCompletionMessageParam]) -> str:
         """Отправляет сообщения первому живому провайдеру из цепочки.
@@ -103,8 +148,14 @@ class LLMClient:
         for provider in self._chain:
             try:
                 client = OpenAI(base_url=provider.base_url, api_key=provider.api_key)
+                compressed = _compress_messages(
+                    messages,
+                    provider.model,
+                    self._settings.headroom_enabled,
+                    self._settings.headroom_model,
+                )
                 response = client.chat.completions.create(
-                    model=provider.model, messages=messages,
+                    model=provider.model, messages=compressed,
                 )
                 content = response.choices[0].message.content
                 if content:

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
         comfyui_workflow_template: Шаблон workflow ComfyUI (API-граф).
         comfyui_workflow_dir: Каталог для сгенерированных workflow-файлов.
         content_niche: Тематика контента для Парсера/Оркестратора.
+        headroom_enabled: Включить сжатие контекста через Headroom перед LLM.
+        headroom_api_key: Ключ Headroom (если требуется для облачного сжатия).
+        headroom_model: Модель сжатия Headroom; если None — используется модель
+            текущего провайдера.
     """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -65,3 +69,7 @@ class Settings(BaseSettings):
     comfyui_workflow_template: str = "assets/comfyui_workflow_template.json"
     comfyui_workflow_dir: str = "/tmp"
     content_niche: str = "ai"
+
+    headroom_enabled: bool = False
+    headroom_api_key: str | None = None
+    headroom_model: str | None = None

@@ -5,10 +5,14 @@
 Сеть не используется — openai.OpenAI подменяется фейком.
 """
 import pytest
+from unittest.mock import MagicMock
 from openai.types.chat import ChatCompletionMessageParam
 
 from core.llm import LLMClient, LLMUnavailableError, build_providers
 from tests.conftest import IsolatedSettings
+
+
+CAPTURED_MESSAGES: list[object] = []
 
 
 # --- Фейк OpenAI-совместимого клиента -------------------------------------
@@ -35,6 +39,7 @@ class _FakeCompletions:
         self._plan = plan
 
     def create(self, model: str, messages: object) -> _FakeResponse:
+        CAPTURED_MESSAGES.append(messages)
         outcome = self._plan.get(model, "FAIL")
         if outcome == "FAIL":
             raise RuntimeError(f"provider unavailable: {model}")
@@ -60,6 +65,7 @@ def make_client(
     monkeypatch: pytest.MonkeyPatch, plan: dict[str, str], **env: str
 ) -> LLMClient:
     """LLMClient с подменённым openai.OpenAI и заданными env-переменными."""
+    CAPTURED_MESSAGES.clear()
     monkeypatch.setattr("core.llm.OpenAI", make_fake_openai(plan))
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -137,3 +143,67 @@ def test_chat_raises_when_everything_down(monkeypatch: pytest.MonkeyPatch) -> No
     )
     with pytest.raises(LLMUnavailableError):
         client.chat(MESSAGES)
+
+
+# --- Тесты Headroom -----------------------------------------------------------
+
+COMPRESSED_MESSAGES: list[ChatCompletionMessageParam] = [
+    {"role": "user", "content": "compressed"}
+]
+
+
+def test_headroom_disabled_uses_original_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """При выключенном Headroom compress не вызывается и отправляются исходные messages."""
+    fake_compress = MagicMock(return_value=COMPRESSED_MESSAGES)
+    monkeypatch.setattr("core.llm.headroom_compress", fake_compress)
+    client = make_client(
+        monkeypatch,
+        {"or-model": "hello-or"},
+        OPENROUTER_API_KEY="or", OPENROUTER_MODEL="or-model",
+    )
+    assert client.chat(MESSAGES) == "hello-or"
+    fake_compress.assert_not_called()
+    assert CAPTURED_MESSAGES == [MESSAGES]
+
+
+def test_headroom_enabled_uses_compressed_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """При включённом Headroom провайдер получает сжатые сообщения."""
+    fake_compress = MagicMock(return_value=COMPRESSED_MESSAGES)
+    monkeypatch.setattr("core.llm.headroom_compress", fake_compress)
+    client = make_client(
+        monkeypatch,
+        {"or-model": "hello-or"},
+        OPENROUTER_API_KEY="or", OPENROUTER_MODEL="or-model",
+        HEADROOM_ENABLED="true",
+    )
+    assert client.chat(MESSAGES) == "hello-or"
+    fake_compress.assert_called_once_with(MESSAGES, model="or-model")
+    assert CAPTURED_MESSAGES == [COMPRESSED_MESSAGES]
+
+
+def test_headroom_uses_configured_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HEADROOM_MODEL переопределяет модель, передаваемую в compress."""
+    fake_compress = MagicMock(return_value=COMPRESSED_MESSAGES)
+    monkeypatch.setattr("core.llm.headroom_compress", fake_compress)
+    client = make_client(
+        monkeypatch,
+        {"or-model": "hello-or"},
+        OPENROUTER_API_KEY="or", OPENROUTER_MODEL="or-model",
+        HEADROOM_ENABLED="true", HEADROOM_MODEL="custom-model",
+    )
+    client.chat(MESSAGES)
+    fake_compress.assert_called_once_with(MESSAGES, model="custom-model")
+
+
+def test_headroom_failure_falls_back_to_original_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """При сбое Headroom LLM-запрос уходит с оригинальными сообщениями."""
+    fake_compress = MagicMock(side_effect=RuntimeError("headroom down"))
+    monkeypatch.setattr("core.llm.headroom_compress", fake_compress)
+    client = make_client(
+        monkeypatch,
+        {"or-model": "hello-or"},
+        OPENROUTER_API_KEY="or", OPENROUTER_MODEL="or-model",
+        HEADROOM_ENABLED="true",
+    )
+    assert client.chat(MESSAGES) == "hello-or"
+    assert CAPTURED_MESSAGES == [MESSAGES]
