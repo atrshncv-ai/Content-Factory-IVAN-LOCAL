@@ -6,3 +6,6 @@ __pycache__/
 data/
 graphify-out/
 .DS_Store
+
+# Локальный скрипт инициализации Node 1 — содержит пароль, в git не попадает
+setup.bat
