@@ -29,6 +29,7 @@ class Settings(BaseSettings):
         evaluator_max_retries: Safety Valve микро-Ralph Loop Контролёра Качества.
         autopost_command: Команда CLI-утилиты автопостинга (SMM-Паблишер).
         comfyui_command: Команда cli-anything-comfyui (отправка на Node 1).
+        comfyui_server_url: Базовый URL ComfyUI на Node 1 (по Tailscale).
         comfyui_workflow_template: Шаблон workflow ComfyUI (API-граф).
         comfyui_workflow_dir: Каталог для сгенерированных workflow-файлов.
         content_niche: Тематика контента для Парсера/Оркестратора.
@@ -66,6 +67,7 @@ class Settings(BaseSettings):
 
     autopost_command: str = "autopost"
     comfyui_command: str = "cli-anything-comfyui"
+    comfyui_server_url: str = "http://localhost:8188"
     comfyui_workflow_template: str = "assets/comfyui_workflow_template.json"
     comfyui_workflow_dir: str = "/tmp"
     content_niche: str = "ai"
