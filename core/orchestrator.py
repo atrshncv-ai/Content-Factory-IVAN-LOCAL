@@ -24,11 +24,14 @@
 import argparse
 import hashlib
 import json
+import logging
 import subprocess
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
+
+logger = logging.getLogger(__name__)
 
 from core.config import Settings
 from core.db import Database
@@ -46,28 +49,143 @@ ACTIVE_STATUSES = (
 
 PROMPT_PLACEHOLDER = "{{POSITIVE_PROMPT}}"
 
+LTX_VIDEO_PROMPT_NODE = "5314"
+LTX_FIRST_FRAME_NODE = "5029"
+LTX_RESOLUTION_NODE = "5330"
+LTX_PRIMARY_VIDEO_COMBINE_NODE = "5294"
 
-def render_workflow(
-    template_path: Path, job_id: str, photo_prompt: str, out_dir: str
-) -> Path:
-    """Подставляет photo_prompt в позитивную CLIPTextEncode-ноду шаблона ComfyUI.
 
-    Результат сохраняется в `{out_dir}/job_{job_id}_workflow.json` — именно
-    этот файл принимает `cli-anything-comfyui queue prompt --workflow`.
-    ComfyUI рендерит только статику, поэтому video_prompt сюда не попадает.
+def _is_ltx_video_workflow(workflow: dict[str, Any]) -> bool:
+    """True, если workflow — LTX-2.3 video (признак: LTXResolutionHelperNode)."""
+    return any(
+        node.get("class_type") == "LTXResolutionHelperNode"
+        for node in workflow.values()
+    )
 
-    Raises:
-        ValueError: placeholder-нода не найдена в шаблоне.
-    """
+
+def _is_ltx_video_template(template_path: Path) -> bool:
+    """True, если файл шаблона — LTX-2.3 video workflow."""
     workflow = json.loads(template_path.read_text(encoding="utf-8"))
+    return _is_ltx_video_workflow(workflow)
+
+
+def _first_frame_image_name(job_id: str, photo_prompt: str) -> str:
+    """Детерминированное имя файла стартового кадра (i2v) на основе промпта."""
+    prompt_hash = hashlib.md5(photo_prompt.encode("utf-8")).hexdigest()[:8]
+    return f"first_frame_{job_id}_{prompt_hash}.png"
+
+
+def _patch_ltx_video_workflow(
+    workflow: dict[str, Any],
+    job_id: str,
+    video_prompt: str,
+    photo_prompt: str,
+) -> None:
+    """Программный патчинг LTX-2.3 video workflow перед отправкой на Node 1.
+
+    Мутации:
+      - video_prompt в ноду Text Multiline (5314)
+      - first_frame в LoadImage (5029)
+      - 9:16 Reels в LTXResolutionHelperNode (5330)
+      - save_output=True + filename_prefix с job_id для VHS_VideoCombine
+    """
+    prompt_node = workflow.get(LTX_VIDEO_PROMPT_NODE)
+    if prompt_node is None or prompt_node.get("class_type") != "Text Multiline":
+        raise ValueError(
+            f"LTX-нода позитивного промпта {LTX_VIDEO_PROMPT_NODE} не найдена "
+            f"или имеет неверный тип"
+        )
+    prompt_node["inputs"]["text"] = video_prompt
+
+    first_frame_node = workflow.get(LTX_FIRST_FRAME_NODE)
+    if first_frame_node is None or first_frame_node.get("class_type") != "LoadImage":
+        raise ValueError(
+            f"LTX-нода стартового кадра {LTX_FIRST_FRAME_NODE} не найдена "
+            f"или имеет неверный тип"
+        )
+    first_frame_node["inputs"]["image"] = _first_frame_image_name(job_id, photo_prompt)
+
+    resolution_node = workflow.get(LTX_RESOLUTION_NODE)
+    if resolution_node is None or resolution_node.get("class_type") != "LTXResolutionHelperNode":
+        raise ValueError(
+            f"LTX-нода разрешения {LTX_RESOLUTION_NODE} не найдена "
+            f"или имеет неверный тип"
+        )
+    resolution_node["inputs"].update(
+        {
+            "aspect_ratio": "custom",
+            "custom_ratio_width": 9,
+            "custom_ratio_height": 16,
+        }
+    )
+
+    saver_count = 0
+    for node_id, node in workflow.items():
+        if node.get("class_type") == "VHS_VideoCombine":
+            node["inputs"]["save_output"] = True
+            if node_id == LTX_PRIMARY_VIDEO_COMBINE_NODE:
+                node["inputs"]["filename_prefix"] = f"LTX_Output_{job_id}_"
+            else:
+                node["inputs"]["filename_prefix"] = f"LTX_Output_{job_id}_preview_{node_id}_"
+            saver_count += 1
+    if saver_count == 0:
+        raise ValueError("В LTX-шаблоне не найдена нода VHS_VideoCombine")
+
+    for node in workflow.values():
+        if node.get("class_type") == "LoadAudioUI":
+            audio_file = node["inputs"].get("audio")
+            logger.warning(
+                f"Workflow expects audio file {audio_file!r} in Node 1 input directory"
+            )
+
+
+def _render_static_workflow(workflow: dict[str, Any], photo_prompt: str) -> None:
+    """Подстановка photo_prompt в placeholder-ноду статичного workflow."""
     injected = False
     for node in workflow.values():
         inputs = node.get("inputs", {})
-        if node.get("class_type") == "CLIPTextEncode" and inputs.get("text") == PROMPT_PLACEHOLDER:
+        if (
+            node.get("class_type") == "CLIPTextEncode"
+            and inputs.get("text") == PROMPT_PLACEHOLDER
+        ):
             inputs["text"] = photo_prompt
             injected = True
     if not injected:
-        raise ValueError(f"placeholder {PROMPT_PLACEHOLDER} не найден в {template_path}")
+        raise ValueError(
+            f"placeholder {PROMPT_PLACEHOLDER} не найден в шаблоне"
+        )
+
+
+def render_workflow(
+    template_path: Path,
+    job_id: str,
+    photo_prompt: str,
+    out_dir: str,
+    video_prompt: str | None = None,
+) -> Path:
+    """Рендерит workflow-JSON: LTX-видео или статичное фото.
+
+    Для LTX-шаблонов применяет программный патчинг на лету
+    (video_prompt, стартовый кадр, 9:16, saver).
+    Для статичных шаблонов — подстановка photo_prompt в placeholder.
+
+    Args:
+        template_path: Путь к исходному шаблону ComfyUI (API-граф).
+        job_id: Идентификатор задания.
+        photo_prompt: Текстовый промпт для статичного кадра / имя кадра i2v.
+        out_dir: Каталог для записи готового workflow-JSON.
+        video_prompt: Текстовый промпт для LTX-видео (None для статики).
+
+    Raises:
+        ValueError: не найдена обязательная нода или placeholder.
+    """
+    workflow = json.loads(template_path.read_text(encoding="utf-8"))
+    if _is_ltx_video_workflow(workflow):
+        _patch_ltx_video_workflow(
+            workflow, job_id, video_prompt or "", photo_prompt
+        )
+    else:
+        _render_static_workflow(workflow, photo_prompt)
     out_path = Path(out_dir) / f"job_{job_id}_workflow.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
@@ -238,13 +356,13 @@ class Orchestrator:
         self._db.upsert_job(job["job_id"], "published")
 
     def _submit_ready(self, job: Any) -> None:
-        """ready_for_render → generating: workflow-JSON с photo_prompt → очередь Node 1.
+        """ready_for_render → generating: workflow-JSON → очередь Node 1.
 
-        video_prompt игнорируется (ComfyUI рендерит только статику) —
-        факт фиксируется в логе.
+        Для статики video_prompt игнорируется и логируется.
+        Для LTX-видео video_prompt подставляется в шаблон программно.
         """
         video_prompt = str(job["video_prompt"] or "")
-        if video_prompt:
+        if video_prompt and not _is_ltx_video_template(Path(self._workflow_template)):
             self._db.log(
                 "INFO", "orchestrator",
                 f"job {job['job_id']}: video_prompt игнорируется (только статика)",
@@ -254,6 +372,7 @@ class Orchestrator:
             job["job_id"],
             str(job["photo_prompt"] or ""),
             self._workflow_dir,
+            video_prompt=video_prompt,
         )
         self._submit(job["job_id"], str(workflow))
         self._db.upsert_job(job["job_id"], "generating")
@@ -303,9 +422,11 @@ def main() -> None:
         """Перегенерация = повторная постановка workflow в очередь ComfyUI."""
         job = db.fetch_job(job_id)
         prompt = str(job["photo_prompt"] or "") if job is not None else ""
+        video_prompt = str(job["video_prompt"] or "") if job is not None else ""
         workflow = render_workflow(
             Path(settings.comfyui_workflow_template), job_id, prompt,
             settings.comfyui_workflow_dir,
+            video_prompt=video_prompt,
         )
         _node1_call(settings, str(workflow))
 

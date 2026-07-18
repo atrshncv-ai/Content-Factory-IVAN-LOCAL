@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 data/
 graphify-out/
+.DS_Store

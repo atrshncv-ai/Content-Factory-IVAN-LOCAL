@@ -21,6 +21,7 @@ from core.orchestrator import (
     PROMPT_PLACEHOLDER,
     Orchestrator,
     _build_node1_command,
+    _first_frame_image_name,
     _job_id_from_trend,
 )
 from core.publisher import PublishError
@@ -141,10 +142,13 @@ def make_orchestrator(
     evaluator: _FakeEvaluator | None = None,
     publisher: _FakePublisher | None = None,
     submit: _FakeSubmit | None = None,
+    workflow_template: str | None = None,
 ) -> Orchestrator:
     """Оркестратор со всеми замоканными субагентами и tmp-шаблоном workflow."""
-    template = tmp_path / "workflow_template.json"
-    template.write_text(json.dumps(TEMPLATE_STUB), encoding="utf-8")
+    template_path = tmp_path / "workflow_template.json"
+    if workflow_template is None:
+        template_path.write_text(json.dumps(TEMPLATE_STUB), encoding="utf-8")
+        workflow_template = str(template_path)
     return Orchestrator(
         db=db,
         parser=parser or _FakeParser([]),
@@ -153,7 +157,7 @@ def make_orchestrator(
         evaluator=evaluator or _FakeEvaluator(db),
         publisher=publisher or _FakePublisher(),
         submit=submit or _FakeSubmit(),
-        workflow_template=str(template),
+        workflow_template=workflow_template,
         workflow_dir=str(tmp_path),
     )
 
@@ -399,3 +403,37 @@ def test_url_less_trends_create_distinct_jobs(db: Database, tmp_path: Path) -> N
     jobs = db.fetch_jobs_by_status("new")
     assert len(jobs) == 2
     assert len({j["job_id"] for j in jobs}) == 2
+
+
+LTX_WORKFLOW_PATH = Path("КОД COMFY/LTX-2.3_Triple_Sampler_DevMode.json")
+
+
+def test_ltx_video_workflow_is_patched(
+    db: Database, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """LTX-шаблон программно патчится: video_prompt, first frame, 9:16, saver."""
+    job_id = "job-ltx"
+    video = "A young man in a white balaclava waves at the camera"
+    photo = "portrait of a young man in a white balaclava, soft studio light"
+    db.upsert_job(job_id, "ready_for_render", video_prompt=video, photo_prompt=photo)
+    submit = _FakeSubmit()
+    with caplog.at_level("WARNING"):
+        summary = make_orchestrator(
+            db, tmp_path, submit=submit, workflow_template=str(LTX_WORKFLOW_PATH)
+        ).run_once()
+    assert summary["submitted"] == 1
+    assert submit.calls == [job_id]
+    workflow = json.loads(Path(submit.paths[0]).read_text(encoding="utf-8"))
+    expected_first_frame = _first_frame_image_name(job_id, photo)
+    assert workflow["5314"]["inputs"]["text"] == video
+    assert workflow["5029"]["inputs"]["image"] == expected_first_frame
+    assert workflow["5330"]["inputs"]["aspect_ratio"] == "custom"
+    assert workflow["5330"]["inputs"]["custom_ratio_width"] == 9
+    assert workflow["5330"]["inputs"]["custom_ratio_height"] == 16
+    assert workflow["5294"]["inputs"]["save_output"] is True
+    assert workflow["5294"]["inputs"]["filename_prefix"] == f"LTX_Output_{job_id}_"
+    for node_id, node in workflow.items():
+        if node.get("class_type") == "VHS_VideoCombine":
+            assert node["inputs"]["save_output"] is True
+            assert job_id in str(node["inputs"]["filename_prefix"])
+    assert "Тест конфи.mp3" in caplog.text

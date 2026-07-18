@@ -1,0 +1,3504 @@
+{
+  "5029": {
+    "inputs": {
+      "image": "Щука.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Загрузить изображение"
+    }
+  },
+  "5030": {
+    "inputs": {
+      "resize_type": "scale longer dimension",
+      "resize_type.longer_size": 1536,
+      "scale_method": "lanczos",
+      "input": [
+        "5029",
+        0
+      ]
+    },
+    "class_type": "ResizeImageMaskNode",
+    "_meta": {
+      "title": "Изменить размер изображения/маски"
+    }
+  },
+  "5032": {
+    "inputs": {
+      "model_name": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+    },
+    "class_type": "LatentUpscaleModelLoader",
+    "_meta": {
+      "title": "Загрузить модель увеличения latent"
+    }
+  },
+  "5037": {
+    "inputs": {
+      "value": 24
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "FPS"
+    }
+  },
+  "5038": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Отключить i2v (превращает в t2v)"
+    }
+  },
+  "5039": {
+    "inputs": {
+      "text": [
+        "5318",
+        0
+      ],
+      "clip": [
+        "5146",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "5040": {
+    "inputs": {
+      "text": "camera zooming out, low resolution, blurry, grainy, pixelated, wide shot, distant view, shallow focus, motion blur, low detail, flat lighting, dark scene, noisy image, poor texture, soft edges, muted colors, overexposed, underexposed, static, silent, no movement, blurry, low quality, still frame, frames, watermark, overlay, titles, has subtitles, Deformed, scene cut, scene transition, no movement, glitching, low resolution, extra hands appearing, extra limbs appearing, warping, extra body parts",
+      "clip": [
+        "5146",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative Prompt"
+    }
+  },
+  "5041": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "positive": [
+        "5039",
+        0
+      ],
+      "negative": [
+        "5040",
+        0
+      ]
+    },
+    "class_type": "LTXVConditioning",
+    "_meta": {
+      "title": "Кондиционирование LTXV"
+    }
+  },
+  "5043": {
+    "inputs": {
+      "video_latent": [
+        "5044",
+        0
+      ],
+      "audio_latent": [
+        "5331",
+        0
+      ]
+    },
+    "class_type": "LTXVConcatAVLatent",
+    "_meta": {
+      "title": "LTXVConcatAVLatent"
+    }
+  },
+  "5044": {
+    "inputs": {
+      "strength": [
+        "5373",
+        0
+      ],
+      "bypass": [
+        "5038",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ],
+      "image": [
+        "5045",
+        0
+      ],
+      "latent": [
+        "5046",
+        0
+      ]
+    },
+    "class_type": "LTXVImgToVideoConditionOnly",
+    "_meta": {
+      "title": "🅛🅣🅧 LTXV Img To Video Condition Only"
+    }
+  },
+  "5045": {
+    "inputs": {
+      "img_compression": [
+        "5370",
+        0
+      ],
+      "image": [
+        "5030",
+        0
+      ]
+    },
+    "class_type": "LTXVPreprocess",
+    "_meta": {
+      "title": "LTXVPreprocess"
+    }
+  },
+  "5046": {
+    "inputs": {
+      "width": [
+        "5330",
+        0
+      ],
+      "height": [
+        "5330",
+        1
+      ],
+      "length": [
+        "5351",
+        0
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLTXVLatentVideo",
+    "_meta": {
+      "title": "Базовое разрешение"
+    }
+  },
+  "5117": {
+    "inputs": {
+      "unet_name": "LTX-2.3-dev-Q3_K_S.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "5119": {
+    "inputs": {
+      "vae_name": "LTX23_audio_vae_bf16.safetensors",
+      "device": "main_device",
+      "weight_dtype": "bf16"
+    },
+    "class_type": "VAELoaderKJ",
+    "_meta": {
+      "title": "VAELoader KJ (AUDIO)"
+    }
+  },
+  "5120": {
+    "inputs": {
+      "vae_name": "LTX23_video_vae_bf16.safetensors",
+      "device": "main_device",
+      "weight_dtype": "bf16"
+    },
+    "class_type": "VAELoaderKJ",
+    "_meta": {
+      "title": "VAELoader KJ (VIDEO)"
+    }
+  },
+  "5127": {
+    "inputs": {
+      "value": "(a*b)+1",
+      "a": [
+        "5130",
+        0
+      ],
+      "b": [
+        "5132",
+        0
+      ]
+    },
+    "class_type": "SimpleMath+",
+    "_meta": {
+      "title": "🔧 Simple Math"
+    }
+  },
+  "5130": {
+    "inputs": {
+      "value": 5
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "Длина видео (сек.)"
+    }
+  },
+  "5132": {
+    "inputs": {
+      "value": [
+        "5037",
+        0
+      ],
+      "mode": "round"
+    },
+    "class_type": "JWFloatToInteger",
+    "_meta": {
+      "title": "Float to Integer"
+    }
+  },
+  "5133": {
+    "inputs": {
+      "text": "121",
+      "anything": [
+        "5127",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5135": {
+    "inputs": {
+      "any_02": [
+        "5117",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5140": {
+    "inputs": {
+      "any_02": [
+        "5120",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5141": {
+    "inputs": {
+      "any_02": [
+        "5119",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5146": {
+    "inputs": {
+      "any_02": [
+        "5147",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5147": {
+    "inputs": {
+      "clip_name1": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "clip_name2": "ltx-2.3_text_projection_bf16.safetensors",
+      "type": "ltxv",
+      "device": "default"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "Двойной загрузчик CLIP"
+    }
+  },
+  "5177": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "CFG"
+    }
+  },
+  "5208": {
+    "inputs": {
+      "samples": [
+        "5220",
+        0
+      ],
+      "mask": [
+        "5209",
+        0
+      ]
+    },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": {
+      "title": "Установить маску шума латента"
+    }
+  },
+  "5209": {
+    "inputs": {
+      "value": 0,
+      "width": [
+        "5330",
+        0
+      ],
+      "height": [
+        "5330",
+        1
+      ]
+    },
+    "class_type": "SolidMask",
+    "_meta": {
+      "title": "Сплошная маска"
+    }
+  },
+  "5210": {
+    "inputs": {
+      "Value": [
+        "5216",
+        0
+      ]
+    },
+    "class_type": "DF_Int_to_Float",
+    "_meta": {
+      "title": "Int to Float"
+    }
+  },
+  "5211": {
+    "inputs": {
+      "expression": "(b-a)+c",
+      "a": [
+        "5229",
+        1
+      ],
+      "b": [
+        "5210",
+        0
+      ],
+      "c": [
+        "5265",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "5212": {
+    "inputs": {
+      "duration": [
+        "5211",
+        1
+      ],
+      "sample_rate": 44100,
+      "channels": 2
+    },
+    "class_type": "EmptyAudio",
+    "_meta": {
+      "title": "Пустой аудио"
+    }
+  },
+  "5213": {
+    "inputs": {
+      "audio": [
+        "5347",
+        0
+      ]
+    },
+    "class_type": "Audio Duration (mtb)",
+    "_meta": {
+      "title": "Audio Duration (mtb)"
+    }
+  },
+  "5214": {
+    "inputs": {
+      "audio": [
+        "5221",
+        0
+      ]
+    },
+    "class_type": "Audio Duration (mtb)",
+    "_meta": {
+      "title": "Audio Duration (mtb)"
+    }
+  },
+  "5215": {
+    "inputs": {
+      "text": "17042",
+      "anything": [
+        "5214",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5216": {
+    "inputs": {
+      "input1": [
+        "5229",
+        1
+      ]
+    },
+    "class_type": "CeilNode",
+    "_meta": {
+      "title": "Ceil"
+    }
+  },
+  "5219": {
+    "inputs": {
+      "text": "409.0",
+      "anything": [
+        "5225",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5220": {
+    "inputs": {
+      "audio": [
+        "5284",
+        0
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEEncode",
+    "_meta": {
+      "title": "LTXV Кодирование аудио VAE"
+    }
+  },
+  "5221": {
+    "inputs": {
+      "direction": "after",
+      "audio1": [
+        "5227",
+        0
+      ],
+      "audio2": [
+        "5212",
+        0
+      ]
+    },
+    "class_type": "AudioConcat",
+    "_meta": {
+      "title": "Аудио - Конкатенация"
+    }
+  },
+  "5222": {
+    "inputs": {
+      "lufs": -18,
+      "audio": [
+        "5221",
+        0
+      ]
+    },
+    "class_type": "NormalizeAudioLoudness",
+    "_meta": {
+      "title": "Normalize Audio Loudness"
+    }
+  },
+  "5223": {
+    "inputs": {
+      "audioUI": "",
+      "audio": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "Предварительное прослушивание аудио"
+    }
+  },
+  "5225": {
+    "inputs": {
+      "expression": "(a*b)+1",
+      "a": [
+        "5216",
+        0
+      ],
+      "b": [
+        "5241",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Calculate frames from audio length"
+    }
+  },
+  "5227": {
+    "inputs": {
+      "start_index": 0,
+      "duration": [
+        "5210",
+        0
+      ],
+      "audio": [
+        "5347",
+        0
+      ]
+    },
+    "class_type": "TrimAudioDuration",
+    "_meta": {
+      "title": "Обрезка длительности аудио"
+    }
+  },
+  "5228": {
+    "inputs": {
+      "text": "16379",
+      "anything": [
+        "5213",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5229": {
+    "inputs": {
+      "expression": "a/1000",
+      "a": [
+        "5213",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "5230": {
+    "inputs": {
+      "text": "17",
+      "anything": [
+        "5216",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5241": {
+    "inputs": {
+      "value": [
+        "5037",
+        0
+      ],
+      "mode": "round"
+    },
+    "class_type": "JWFloatToInteger",
+    "_meta": {
+      "title": "Float to Integer"
+    }
+  },
+  "5259": {
+    "inputs": {
+      "expression": "(a/b)-c",
+      "a": [
+        "5225",
+        0
+      ],
+      "b": [
+        "5037",
+        0
+      ],
+      "c": [
+        "5216",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "5265": {
+    "inputs": {
+      "any_01": [
+        "5259",
+        1
+      ],
+      "any_02": [
+        "5268",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5266": {
+    "inputs": {
+      "text": "0.04166666666666785",
+      "anything": [
+        "5265",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5268": {
+    "inputs": {
+      "value": 0
+    },
+    "class_type": "Float",
+    "_meta": {
+      "title": "Float"
+    }
+  },
+  "5279": {
+    "inputs": {
+      "model": [
+        "5280",
+        0
+      ],
+      "audio": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "MelBandRoFormerSampler",
+    "_meta": {
+      "title": "Mel-Band RoFormer Sampler"
+    }
+  },
+  "5280": {
+    "inputs": {
+      "model_name": "MelBandRoformer_fp16.safetensors"
+    },
+    "class_type": "MelBandRoFormerModelLoader",
+    "_meta": {
+      "title": "Mel-Band RoFormer Model Loader"
+    }
+  },
+  "5281": {
+    "inputs": {
+      "audioUI": "",
+      "audio": [
+        "5284",
+        0
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "Предварительное прослушивание аудио"
+    }
+  },
+  "5284": {
+    "inputs": {
+      "switch": [
+        "5285",
+        0
+      ],
+      "on_false": [
+        "5222",
+        0
+      ],
+      "on_true": [
+        "5279",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Отделить вокал = true |  не отделять  = false"
+    }
+  },
+  "5285": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "Bool",
+    "_meta": {
+      "title": "Отделить вокал перед генерацией?"
+    }
+  },
+  "5291": {
+    "inputs": {
+      "value": true
+    },
+    "class_type": "Bool",
+    "_meta": {
+      "title": "Использовать оригинальное аудио?"
+    }
+  },
+  "5294": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5380:5295",
+        0
+      ],
+      "audio": [
+        "5380:5302",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5314": {
+    "inputs": {
+      "text": "Молодой мужчина в белой балаклаве достаёт телефон и прикладывает его к уху, начиная по нему говорить: \"Привет! Как дела? Что делаешь?\". Потом он делает паузу и произносит: \"Ясно\"."
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "Positive Prompt"
+    }
+  },
+  "5318": {
+    "inputs": {
+      "any_02": [
+        "5314",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5321": {
+    "inputs": {
+      "source": [
+        "5318",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Предпросмотр любого"
+    }
+  },
+  "5328": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "5318",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Финальный промпт (предпросмотр)"
+    }
+  },
+  "5330": {
+    "inputs": {
+      "aspect_ratio": "1:1",
+      "ratio_mode": "Exact Ratio",
+      "custom_ratio_width": 16,
+      "custom_ratio_height": 9,
+      "multiple": 32,
+      "size_step": 16
+    },
+    "class_type": "LTXResolutionHelperNode",
+    "_meta": {
+      "title": "LTX Resolution Helper"
+    }
+  },
+  "5331": {
+    "inputs": {
+      "any_01": [
+        "5332",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5332": {
+    "inputs": {
+      "frames_number": [
+        "5127",
+        0
+      ],
+      "frame_rate": [
+        "5335",
+        0
+      ],
+      "batch_size": 1,
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVEmptyLatentAudio",
+    "_meta": {
+      "title": "LTXV Пустое латентное аудио"
+    }
+  },
+  "5335": {
+    "inputs": {
+      "value": [
+        "5037",
+        0
+      ],
+      "mode": "round"
+    },
+    "class_type": "JWFloatToInteger",
+    "_meta": {
+      "title": "Float to Integer"
+    }
+  },
+  "5347": {
+    "inputs": {
+      "audio": "Тест конфи.mp3",
+      "start_time": 0,
+      "end_time": 16.38,
+      "duration": 16.38,
+      "audioUI": "/api/view?filename=%D0%A2%D0%B5%D1%81%D1%82%20%D0%BA%D0%BE%D0%BD%D1%84%D0%B8.mp3&type=input&subfolder=&rand=0.8456803160852646",
+      "audio_ui": ""
+    },
+    "class_type": "LoadAudioUI",
+    "_meta": {
+      "title": "Load Audio UI"
+    }
+  },
+  "5351": {
+    "inputs": {
+      "any_01": [
+        "5127",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5353": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "Bool",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5354": {
+    "inputs": {
+      "any_01": [
+        "5353",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "5370": {
+    "inputs": {
+      "value": 0
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "img_compression"
+    }
+  },
+  "5373": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "img_strength (0.0 - 1.0)"
+    }
+  },
+  "5420": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5418:5406",
+        0
+      ],
+      "audio": [
+        "5418:5415",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5447": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5445:5433",
+        0
+      ],
+      "audio": [
+        "5445:5442",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5449": {
+    "inputs": {
+      "Xi": 3,
+      "Xf": 3,
+      "isfloatX": 0
+    },
+    "class_type": "mxSlider",
+    "_meta": {
+      "title": "Выбор генерации из 1-го прохода (номер)"
+    }
+  },
+  "5451": {
+    "inputs": {
+      "av_latent": [
+        "5968",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5455": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": false,
+        "lora": "LTX\\LTX-2.3-22b-AV-LoRA-talking-head-v1.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": false,
+        "lora": "LTX\\_General\\LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "5135",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "LoRA: 1-ый проход"
+    }
+  },
+  "5500": {
+    "inputs": {
+      "seed": 236395834075576
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed (3-ий проход)"
+    }
+  },
+  "5501": {
+    "inputs": {
+      "seed": 144337637824080
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed (2-ой проход)"
+    }
+  },
+  "5502": {
+    "inputs": {
+      "seed": 793285850414869
+    },
+    "class_type": "Seed (rgthree)",
+    "_meta": {
+      "title": "Seed (1-ый проход)"
+    }
+  },
+  "5532": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5534:5520",
+        0
+      ],
+      "audio": [
+        "5534:5528",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5559": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5561:5547",
+        0
+      ],
+      "audio": [
+        "5561:5555",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5950": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5958:5890",
+        0
+      ],
+      "audio": [
+        "5958:5898",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5953": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5954:5856",
+        0
+      ],
+      "audio": [
+        "5954:5865",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5955": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5956:5867",
+        0
+      ],
+      "audio": [
+        "5956:5876",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5960": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5962:5913",
+        0
+      ],
+      "audio": [
+        "5962:5921",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5964": {
+    "inputs": {
+      "frame_rate": [
+        "5037",
+        0
+      ],
+      "loop_count": 0,
+      "filename_prefix": "LTX/SeedHunting/1st_Pass/LTX_1st_Pass",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 14,
+      "save_metadata": false,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "5966:5936",
+        0
+      ],
+      "audio": [
+        "5966:5944",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "1st Pass - Preview"
+    }
+  },
+  "5968": {
+    "inputs": {
+      "select": [
+        "5449",
+        0
+      ],
+      "sel_mode": false,
+      "input1": [
+        "5379:5051",
+        0
+      ],
+      "input2": [
+        "5417:5394",
+        0
+      ],
+      "input3": [
+        "5444:5421",
+        0
+      ],
+      "input4": [
+        "5533:5518",
+        0
+      ],
+      "input5": [
+        "5560:5545",
+        0
+      ],
+      "input6": [
+        "5952:5854",
+        0
+      ],
+      "input7": [
+        "5951:5842",
+        0
+      ],
+      "input8": [
+        "5957:5888",
+        0
+      ],
+      "input9": [
+        "5961:5911",
+        0
+      ],
+      "input10": [
+        "5965:5934",
+        0
+      ]
+    },
+    "class_type": "ImpactSwitch",
+    "_meta": {
+      "title": "Switch (Any)"
+    }
+  },
+  "5973": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": false,
+        "lora": "LTX\\LTX-2.3-22b-AV-LoRA-talking-head-v1.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": false,
+        "lora": "LTX\\_General\\LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "5135",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "LoRA: 2-ой проход"
+    }
+  },
+  "5974": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": false,
+        "lora": "LTX\\LTX-2.3-22b-AV-LoRA-talking-head-v1.safetensors",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": false,
+        "lora": "LTX\\_General\\LTX-2.3-OmniNFT-RL-Lora_bf16.safetensors",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "5135",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "LoRA: 3-ий проход"
+    }
+  },
+  "5993": {
+    "inputs": {
+      "INT": [
+        "5997:5991",
+        0
+      ]
+    },
+    "class_type": "Bjornulf_ShowInt",
+    "_meta": {
+      "title": "👁 Show (Int)"
+    }
+  },
+  "5995": {
+    "inputs": {
+      "value": 5
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "Минимальная длительность видео"
+    }
+  },
+  "5996": {
+    "inputs": {
+      "value": 20
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "Максимальная длительность видео"
+    }
+  },
+  "5997:5989": {
+    "inputs": {
+      "expression": "a/b",
+      "a": [
+        "5997:5232",
+        2
+      ],
+      "b": [
+        "5037",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "5997:5990": {
+    "inputs": {
+      "INT": [
+        "5997:5989",
+        0
+      ]
+    },
+    "class_type": "Bjornulf_ShowInt",
+    "_meta": {
+      "title": "👁 Show (Int)"
+    }
+  },
+  "5997:5991": {
+    "inputs": {
+      "expression": "min(max(a, b), c)",
+      "a": [
+        "5997:5989",
+        0
+      ],
+      "b": [
+        "5995",
+        0
+      ],
+      "c": [
+        "5996",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "Math Expression 🐍"
+    }
+  },
+  "5997:5232": {
+    "inputs": {
+      "text": "",
+      "fps": 24,
+      "additional_time": 0,
+      "text_input": [
+        "5314",
+        0
+      ]
+    },
+    "class_type": "SpeechLengthCalculator",
+    "_meta": {
+      "title": "Speech Length Calculator"
+    }
+  },
+  "5379:5054": {
+    "inputs": {
+      "noise_seed": [
+        "5379:5375",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5379:5050": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5379:5052": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5379:5049": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5379:5375": {
+    "inputs": {
+      "expression": "a",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5379:5053": {
+    "inputs": {
+      "av_latent": [
+        "5379:5051",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5379:5051": {
+    "inputs": {
+      "noise": [
+        "5379:5054",
+        0
+      ],
+      "guider": [
+        "5379:5049",
+        0
+      ],
+      "sampler": [
+        "5379:5050",
+        0
+      ],
+      "sigmas": [
+        "5379:5052",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5417:5395": {
+    "inputs": {
+      "noise_seed": [
+        "5417:5403",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5417:5396": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5417:5397": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5417:5400": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5417:5402": {
+    "inputs": {
+      "av_latent": [
+        "5417:5394",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5417:5403": {
+    "inputs": {
+      "expression": "a+1",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5417:5394": {
+    "inputs": {
+      "noise": [
+        "5417:5395",
+        0
+      ],
+      "guider": [
+        "5417:5400",
+        0
+      ],
+      "sampler": [
+        "5417:5396",
+        0
+      ],
+      "sigmas": [
+        "5417:5397",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5444:5422": {
+    "inputs": {
+      "noise_seed": [
+        "5444:5430",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5444:5423": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5444:5424": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5444:5427": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5444:5429": {
+    "inputs": {
+      "av_latent": [
+        "5444:5421",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5444:5430": {
+    "inputs": {
+      "expression": "a+2",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5444:5421": {
+    "inputs": {
+      "noise": [
+        "5444:5422",
+        0
+      ],
+      "guider": [
+        "5444:5427",
+        0
+      ],
+      "sampler": [
+        "5444:5423",
+        0
+      ],
+      "sigmas": [
+        "5444:5424",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5533:5508": {
+    "inputs": {
+      "noise_seed": [
+        "5533:5517",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5533:5509": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5533:5510": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5533:5513": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5533:5515": {
+    "inputs": {
+      "av_latent": [
+        "5533:5518",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5533:5518": {
+    "inputs": {
+      "noise": [
+        "5533:5508",
+        0
+      ],
+      "guider": [
+        "5533:5513",
+        0
+      ],
+      "sampler": [
+        "5533:5509",
+        0
+      ],
+      "sigmas": [
+        "5533:5510",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5533:5517": {
+    "inputs": {
+      "expression": "a+3",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5560:5535": {
+    "inputs": {
+      "noise_seed": [
+        "5560:5544",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5560:5536": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5560:5537": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5560:5540": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5560:5542": {
+    "inputs": {
+      "av_latent": [
+        "5560:5545",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5560:5545": {
+    "inputs": {
+      "noise": [
+        "5560:5535",
+        0
+      ],
+      "guider": [
+        "5560:5540",
+        0
+      ],
+      "sampler": [
+        "5560:5536",
+        0
+      ],
+      "sigmas": [
+        "5560:5537",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5560:5544": {
+    "inputs": {
+      "expression": "a+4",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5952:5844": {
+    "inputs": {
+      "noise_seed": [
+        "5952:5851",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5952:5845": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5952:5846": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5952:5849": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5952:5853": {
+    "inputs": {
+      "av_latent": [
+        "5952:5854",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5952:5854": {
+    "inputs": {
+      "noise": [
+        "5952:5844",
+        0
+      ],
+      "guider": [
+        "5952:5849",
+        0
+      ],
+      "sampler": [
+        "5952:5845",
+        0
+      ],
+      "sigmas": [
+        "5952:5846",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5952:5851": {
+    "inputs": {
+      "expression": "a+5",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5951:5832": {
+    "inputs": {
+      "noise_seed": [
+        "5951:5841",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5951:5833": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5951:5834": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5951:5837": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5951:5839": {
+    "inputs": {
+      "av_latent": [
+        "5951:5842",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5951:5842": {
+    "inputs": {
+      "noise": [
+        "5951:5832",
+        0
+      ],
+      "guider": [
+        "5951:5837",
+        0
+      ],
+      "sampler": [
+        "5951:5833",
+        0
+      ],
+      "sigmas": [
+        "5951:5834",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5951:5841": {
+    "inputs": {
+      "expression": "a+6",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5957:5878": {
+    "inputs": {
+      "noise_seed": [
+        "5957:5887",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5957:5879": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5957:5880": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5957:5883": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5957:5885": {
+    "inputs": {
+      "av_latent": [
+        "5957:5888",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5957:5888": {
+    "inputs": {
+      "noise": [
+        "5957:5878",
+        0
+      ],
+      "guider": [
+        "5957:5883",
+        0
+      ],
+      "sampler": [
+        "5957:5879",
+        0
+      ],
+      "sigmas": [
+        "5957:5880",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5957:5887": {
+    "inputs": {
+      "expression": "a+7",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5961:5901": {
+    "inputs": {
+      "noise_seed": [
+        "5961:5910",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5961:5902": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5961:5903": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5961:5906": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5961:5908": {
+    "inputs": {
+      "av_latent": [
+        "5961:5911",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5961:5911": {
+    "inputs": {
+      "noise": [
+        "5961:5901",
+        0
+      ],
+      "guider": [
+        "5961:5906",
+        0
+      ],
+      "sampler": [
+        "5961:5902",
+        0
+      ],
+      "sigmas": [
+        "5961:5903",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5961:5910": {
+    "inputs": {
+      "expression": "a+8",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5965:5924": {
+    "inputs": {
+      "noise_seed": [
+        "5965:5933",
+        1
+      ]
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Случайный шум"
+    }
+  },
+  "5965:5925": {
+    "inputs": {
+      "sampler_name": "euler_ancestral_cfg_pp"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Выбор KSampler"
+    }
+  },
+  "5965:5926": {
+    "inputs": {
+      "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5965:5929": {
+    "inputs": {
+      "cfg": [
+        "5177",
+        0
+      ],
+      "model": [
+        "5455",
+        0
+      ],
+      "positive": [
+        "5041",
+        0
+      ],
+      "negative": [
+        "5041",
+        1
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Гид"
+    }
+  },
+  "5965:5931": {
+    "inputs": {
+      "av_latent": [
+        "5965:5934",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5965:5934": {
+    "inputs": {
+      "noise": [
+        "5965:5924",
+        0
+      ],
+      "guider": [
+        "5965:5929",
+        0
+      ],
+      "sampler": [
+        "5965:5925",
+        0
+      ],
+      "sigmas": [
+        "5965:5926",
+        0
+      ],
+      "latent_image": [
+        "5043",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Пользовательский сэмплер (Расширенный)"
+    }
+  },
+  "5965:5933": {
+    "inputs": {
+      "expression": "a+9",
+      "variables.a": [
+        "5502",
+        0
+      ]
+    },
+    "class_type": "SimpleCalculatorKJ",
+    "_meta": {
+      "title": "SimpleCalculatorKJ"
+    }
+  },
+  "5380:5295": {
+    "inputs": {
+      "samples": [
+        "5379:5053",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5380:5300": {
+    "inputs": {
+      "samples": [
+        "5379:5053",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5380:5367": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5380:5368": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5380:5365",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5380:5365": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5380:5367",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5380:5302": {
+    "inputs": {
+      "switch": [
+        "5380:5365",
+        0
+      ],
+      "on_false": [
+        "5380:5300",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5418:5406": {
+    "inputs": {
+      "samples": [
+        "5417:5402",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5418:5409": {
+    "inputs": {
+      "samples": [
+        "5417:5402",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5418:5411": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5418:5413": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5418:5414",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5418:5414": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5418:5411",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5418:5415": {
+    "inputs": {
+      "switch": [
+        "5418:5414",
+        0
+      ],
+      "on_false": [
+        "5418:5409",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5445:5433": {
+    "inputs": {
+      "samples": [
+        "5444:5429",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5445:5436": {
+    "inputs": {
+      "samples": [
+        "5444:5429",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5445:5438": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5445:5440": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5445:5441",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5445:5442": {
+    "inputs": {
+      "switch": [
+        "5445:5441",
+        0
+      ],
+      "on_false": [
+        "5445:5436",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5445:5441": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5445:5438",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5534:5520": {
+    "inputs": {
+      "samples": [
+        "5533:5515",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5534:5523": {
+    "inputs": {
+      "samples": [
+        "5533:5515",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5534:5525": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5534:5527": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5534:5530",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5534:5528": {
+    "inputs": {
+      "switch": [
+        "5534:5530",
+        0
+      ],
+      "on_false": [
+        "5534:5523",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5534:5530": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5534:5525",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5561:5547": {
+    "inputs": {
+      "samples": [
+        "5560:5542",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5561:5550": {
+    "inputs": {
+      "samples": [
+        "5560:5542",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5561:5552": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5561:5554": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5561:5557",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5561:5555": {
+    "inputs": {
+      "switch": [
+        "5561:5557",
+        0
+      ],
+      "on_false": [
+        "5561:5550",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5561:5557": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5561:5552",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5956:5867": {
+    "inputs": {
+      "samples": [
+        "5952:5853",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5956:5870": {
+    "inputs": {
+      "samples": [
+        "5952:5853",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5956:5872": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5956:5874": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5956:5875",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5956:5875": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5956:5872",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5956:5876": {
+    "inputs": {
+      "switch": [
+        "5956:5875",
+        0
+      ],
+      "on_false": [
+        "5956:5870",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5954:5856": {
+    "inputs": {
+      "samples": [
+        "5951:5839",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5954:5859": {
+    "inputs": {
+      "samples": [
+        "5951:5839",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5954:5861": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5954:5863": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5954:5864",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5954:5864": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5954:5861",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5954:5865": {
+    "inputs": {
+      "switch": [
+        "5954:5864",
+        0
+      ],
+      "on_false": [
+        "5954:5859",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5958:5890": {
+    "inputs": {
+      "samples": [
+        "5957:5885",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5958:5893": {
+    "inputs": {
+      "samples": [
+        "5957:5885",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5958:5895": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5958:5897": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5958:5900",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5958:5898": {
+    "inputs": {
+      "switch": [
+        "5958:5900",
+        0
+      ],
+      "on_false": [
+        "5958:5893",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5958:5900": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5958:5895",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5962:5913": {
+    "inputs": {
+      "samples": [
+        "5961:5908",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5962:5916": {
+    "inputs": {
+      "samples": [
+        "5961:5908",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5962:5918": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5962:5920": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5962:5923",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5962:5921": {
+    "inputs": {
+      "switch": [
+        "5962:5923",
+        0
+      ],
+      "on_false": [
+        "5962:5916",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5962:5923": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5962:5918",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  },
+  "5966:5936": {
+    "inputs": {
+      "samples": [
+        "5965:5931",
+        0
+      ],
+      "vae": [
+        "5140",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "5966:5939": {
+    "inputs": {
+      "samples": [
+        "5965:5931",
+        1
+      ],
+      "audio_vae": [
+        "5141",
+        0
+      ]
+    },
+    "class_type": "LTXVAudioVAEDecode",
+    "_meta": {
+      "title": "LTXV Декодирование аудио VAE"
+    }
+  },
+  "5966:5941": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Булево значение"
+    }
+  },
+  "5966:5943": {
+    "inputs": {
+      "text": "False",
+      "anything": [
+        "5966:5946",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "easy showAnything"
+    }
+  },
+  "5966:5944": {
+    "inputs": {
+      "switch": [
+        "5966:5946",
+        0
+      ],
+      "on_false": [
+        "5966:5939",
+        0
+      ],
+      "on_true": [
+        "5222",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Use original audio?"
+    }
+  },
+  "5966:5946": {
+    "inputs": {
+      "switch": [
+        "5354",
+        0
+      ],
+      "on_false": [
+        "5966:5941",
+        0
+      ],
+      "on_true": [
+        "5291",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "boolean override"
+    }
+  }
+}
