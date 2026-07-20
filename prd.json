@@ -43,6 +43,12 @@
       "phase": "Orchestration",
       "description": "Настройка Главного Оркестратора через Hermes Kanban (или аналог) для управления воркерами по Cron/Webhooks",
       "passes": true
+    },
+    {
+      "id": "8",
+      "phase": "Watch Folder (Node 2 ↔ Node 1)",
+      "description": "Постановка задач на ComfyUI через Shared Folder при заблокированном API: orchestrator_sender (Node 2) + node1_watchdog (Node 1)",
+      "passes": true
     }
   ]
 }

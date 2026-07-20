@@ -3,8 +3,13 @@
 
 ## 1. Физическая топология кластера
 Система разделена на два физических узла, соединенных через Tailscale VPN.
-*   **Node 1 (ComfyUI GPU Server):** Сервер рендера. Не принимает решений. Получает задачи от Node 2 по API, рендерит медиа, сохраняет файлы в Shared Folder, отправляет Webhook о готовности.
+*   **Node 1 (ComfyUI GPU Server):** Сервер рендера. Не принимает решений. Получает задачи от Node 2, рендерит медиа, сохраняет файлы в Shared Folder, отправляет Webhook о готовности.
 *   **Node 2 (The Brain - Control Server):** Сервер управления. Здесь работает мультиагентная система (Hermes Agent/MCP). Выполняет всю оркестрацию.
+
+### Постановка задач: Watch Folder (fallback при блокировке API)
+Если брандмауэр Node 1 не пропускает входящие на порт 8188, используется паттерн **Watch Folder** через Shared Folder (SMB по Tailscale):
+1.  `core/orchestrator_sender.py` (Node 2) подставляет промпты в текстовые ноды шаблона (LTX-2.3: позитив — `5314` Text Multiline, негатив — `5040` CLIPTextEncode) и атомарно пишет `job_{id}.json` в Shared Folder.
+2.  `scripts/node1_watchdog.py` (Node 1, локально) раз в 2 секунды забирает новые job-файлы и отправляет их POST на `http://127.0.0.1:8188/prompt`, затем перемещает в `processing/`. Watchdog — изолированная CLI-утилита (syscall), а не Оркестратор, поэтому его polling-loop не нарушает запрет `while True` из AGENTS.md.
 
 ## 2. Интеграция данных и Память
 Агенты не должны хранить всю информацию в контексте во избежание "Context Rot".
