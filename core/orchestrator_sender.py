@@ -1,9 +1,10 @@
-"""Отправитель задач на Node 1 (паттерн Watch Folder).
+"""Отправитель задач на Node 1 (pull-модель).
 
 Загружает шаблон workflow ComfyUI, подставляет промпты в текстовые ноды
-и сохраняет готовый job-файл в Shared Folder. Watchdog на Node 1
-подхватывает файл и отправляет его в локальный API ComfyUI — прямой
-доступ к API по Tailscale не нужен, брандмауэр не задействован.
+и сохраняет готовый job-файл в локальную папку задач (data/jobs).
+Папку раздаёт scripts/job_server.py по HTTP через Tailscale; watchdog
+на Node 1 сам забирает файл исходящим соединением — брандмауэр Windows
+и SMB не задействованы.
 
 Текстовые ноды LTX-2.3 (инвентаризация workflow заказчика):
   5314 (Text Multiline) — позитивный промпт (источник для CLIPTextEncode 5039);
@@ -36,25 +37,25 @@ def send_job(
     job_id: str,
     positive: str,
     template_path: str,
-    shared_folder: str,
+    out_dir: str,
     negative: str = "",
 ) -> Path:
     """Подставляет промпты в текстовые ноды и атомарно пишет job-файл.
 
-    Атомарная запись (.tmp → os.replace) защищает watchdog на Node 1
-    от чтения недописанного файла.
+    Атомарная запись (.tmp → os.replace) защищает Node 1 от чтения
+    недописанного файла, пока job-server раздаёт папку по HTTP.
 
     Returns:
-        Путь к созданному job-файлу в Shared Folder.
+        Путь к созданному job-файлу в папке задач.
     """
     workflow = json.loads(Path(template_path).read_text(encoding="utf-8"))
     workflow[POSITIVE_NODE]["inputs"]["text"] = positive
     if negative:
         workflow[NEGATIVE_NODE]["inputs"]["text"] = negative
-    out_dir = Path(shared_folder)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"job_{job_id}.json"
-    tmp_path = out_dir / f"job_{job_id}.tmp"
+    out_path_dir = Path(out_dir)
+    out_path_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_path_dir / f"job_{job_id}.json"
+    tmp_path = out_path_dir / f"job_{job_id}.tmp"
     tmp_path.write_text(json.dumps(workflow, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp_path, out_path)
     return out_path
@@ -69,7 +70,7 @@ def main() -> None:
         job_id=sys.argv[1],
         positive=sys.argv[2],
         template_path=env.get("COMFYUI_WORKFLOW_TEMPLATE", DEFAULT_TEMPLATE),
-        shared_folder=env.get("SHARED_FOLDER", "shared"),
+        out_dir=env.get("JOBS_DIR", "data/jobs"),
         negative=sys.argv[3] if len(sys.argv) > 3 else "",
     )
     print(f"job отправлен: {out}")

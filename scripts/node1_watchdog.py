@@ -1,62 +1,80 @@
-"""Watchdog Node 1 (Watch Folder): Shared Folder → локальный API ComfyUI.
+"""Watchdog Node 1 (pull-модель): забирает job-файлы с Node 2 по HTTP.
 
-Запускается локально на ПК с ComfyUI. Раз в 2 секунды проверяет папку
-на новые job-файлы (job_*.json), отправляет их POST на 127.0.0.1:8188/prompt
-и перемещает в processing/, чтобы не отправить дважды.
+Node 2 (мозг) раздаёт задачи своим job-server'ом (Tailscale, порт 8899).
+Watchdog на ПК с ComfyUI раз в 2 секунды:
+  1. GET    <node2>/           → список job-файлов;
+  2. GET    <node2>/job_X.json → скачивает workflow;
+  3. POST   workflow в локальный ComfyUI (127.0.0.1:8188/prompt);
+  4. DELETE <node2>/job_X.json → чтобы не сгенерировать дважды.
 
-Это изолированная CLI-утилита (syscall) на Node 1, а не Оркестратор,
-поэтому polling-loop здесь допустим (запрет while True в AGENTS.md п.2
-касается главного Оркестратора на Node 2).
+Исходящее соединение Node 1 → Node 2 не блокируется брандмауэром Windows,
+поэтому pull-модель работает там, где SMB/serve не проходили.
 
-Ponytail: только stdlib (json, os, shutil, time, urllib, pathlib).
+Изолированная CLI-утилита (syscall) на Node 1, не Оркестратор — polling-loop
+допустим (запрет while True в AGENTS.md касается Node 2).
+
+Ponytail: только stdlib (json, os, time, urllib).
 """
 import json
 import os
-import shutil
 import time
-import urllib.error
 import urllib.request
-from pathlib import Path
+from typing import Any
 
-# Локальный путь на ПК заказчика (Node 1). Та же папка расшарена как
-# \\100.93.111.66\ComfyOutput — Node 2 пишет job-файлы именно сюда.
-DEFAULT_WATCH_DIR = (
-    r"C:\Confy_UI\ComfyUI_windows_portable_nvidia"
-    r"\ComfyUI_windows_portable\ComfyUI\OutPutComfyUI"
-)
-WATCH_DIR = Path(os.environ.get("SHARED_FOLDER", DEFAULT_WATCH_DIR))
-DONE_DIR = WATCH_DIR / "processing"
+NODE2_URL = os.environ.get("NODE2_URL", "http://100.123.244.99:8899")
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188/prompt")
 
 
-def submit(job_path: Path) -> None:
-    """Отправляет job-файл в локальный API ComfyUI (POST /prompt)."""
-    workflow = json.loads(job_path.read_text(encoding="utf-8"))
+def _get_json(url: str) -> Any:
+    """GET-запрос, ожидающий JSON."""
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def list_jobs() -> list[str]:
+    """GET / → список имён job-файлов на Node 2."""
+    return [str(name) for name in _get_json(f"{NODE2_URL}/")]
+
+
+def fetch_job(name: str) -> Any:
+    """GET /job_X.json → workflow ComfyUI."""
+    return _get_json(f"{NODE2_URL}/{name}")
+
+
+def delete_job(name: str) -> None:
+    """DELETE /job_X.json — удалить отработанный файл на Node 2."""
+    req = urllib.request.Request(f"{NODE2_URL}/{name}", method="DELETE")
+    with urllib.request.urlopen(req, timeout=10):
+        pass
+
+
+def submit(workflow: Any, name: str) -> None:
+    """POST workflow в локальный API ComfyUI."""
     payload = json.dumps({"prompt": workflow}).encode("utf-8")
     req = urllib.request.Request(
         COMFYUI_URL, data=payload, headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
-        print(f"OK {job_path.name}: HTTP {resp.status}")
+        print(f"OK {name}: HTTP {resp.status}")
 
 
 def main() -> None:
-    """Polling-loop: каждые 2 секунды забирает новые job-файлы."""
-    DONE_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Watchdog: слежу за {WATCH_DIR.resolve()}, API: {COMFYUI_URL}")
+    """Polling-loop: каждые 2 секунды забирает новые job-файлы с Node 2."""
+    print(f"Watchdog(pull): {NODE2_URL} -> {COMFYUI_URL}")
     while True:
-        for job_path in sorted(WATCH_DIR.glob("job_*.json")):
+        try:
+            names = list_jobs()
+        except Exception as exc:
+            print(f"Node 2 недоступен: {exc}")
+            names = []
+        for name in names:
             try:
-                submit(job_path)
-            except (json.JSONDecodeError, urllib.error.HTTPError) as exc:
-                # Бракованный файл/запрос — в мертвую папку, не мучаем API.
-                print(f"BAD {job_path.name}: {exc}")
-                shutil.move(str(job_path), DONE_DIR / f"{job_path.name}.failed")
+                workflow = fetch_job(name)
+                submit(workflow, name)
+                delete_job(name)
             except Exception as exc:
-                # ComfyUI недоступен — файл остаётся, повтор на следующем тике.
-                print(f"RETRY {job_path.name}: {exc}")
-            else:
-                shutil.move(str(job_path), DONE_DIR / job_path.name)
+                # Файл остаётся на Node 2 — повтор на следующем тике.
+                print(f"RETRY {name}: {exc}")
         time.sleep(2)
 
 
