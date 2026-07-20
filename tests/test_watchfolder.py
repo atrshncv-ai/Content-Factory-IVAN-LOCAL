@@ -89,3 +89,9 @@ def test_submit_posts_prompt_payload(tmp_path: Path, monkeypatch: pytest.MonkeyP
         assert _CaptureHandler.payloads == [{"prompt": {"9": {"class_type": "SaveImage"}}}]
     finally:
         server.shutdown()
+
+
+def test_watch_dir_defaults_to_node1_local_path() -> None:
+    """Дефолтный путь watchdog — локальная папка Node 1 (OutPutComfyUI)."""
+    from scripts.node1_watchdog import WATCH_DIR
+    assert str(WATCH_DIR).endswith("OutPutComfyUI")

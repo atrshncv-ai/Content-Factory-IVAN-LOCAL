@@ -18,7 +18,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-WATCH_DIR = Path(os.environ.get("SHARED_FOLDER", "shared"))
+# Локальный путь на ПК заказчика (Node 1). Та же папка расшарена как
+# \\100.93.111.66\ComfyOutput — Node 2 пишет job-файлы именно сюда.
+DEFAULT_WATCH_DIR = (
+    r"C:\Confy_UI\ComfyUI_windows_portable_nvidia"
+    r"\ComfyUI_windows_portable\ComfyUI\OutPutComfyUI"
+)
+WATCH_DIR = Path(os.environ.get("SHARED_FOLDER", DEFAULT_WATCH_DIR))
 DONE_DIR = WATCH_DIR / "processing"
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188/prompt")
 
