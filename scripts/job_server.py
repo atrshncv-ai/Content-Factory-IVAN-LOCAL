@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-HOST = os.environ.get("JOB_SERVER_HOST", "100.123.244.99")
+HOST = os.environ.get("JOB_SERVER_HOST", "0.0.0.0")
 PORT = int(os.environ.get("JOB_SERVER_PORT", "8899"))
 JOBS_DIR = Path(os.environ.get("JOBS_DIR", "data/jobs"))
 
