@@ -3,24 +3,22 @@
 Единая точка входа. Машина состояний Kanban над таблицей media_jobs —
 БЕЗ while-циклов (запрет AGENTS.md): один запуск = один проход по доске,
 каждое задание двигается максимум на один шаг, затем чистый выход
-(Clean Context, exit 0). Повтор — на следующем cron-тике или Webhook'е.
+(Clean Context, exit 0). Повтор — на следующем cron-тике.
 
-Стадии:  new → planned → ready_for_render → generating →(Node 1, Webhook)
+Стадии:  new → planned → ready_for_render → generating →(poller, Node 1)
          → done →(Evaluator)→ approved →(Publisher)→ published.
          Терминальные: published / failed / error.
 
 Маршрутизация:
   - cron-тик:  done → Evaluator | approved → Publisher | new → Planner,
-               planned → Prompter | ready_for_render → Node 1.
+               planned → Prompter | ready_for_render → Node 1,
+               generating → Poller (история ComfyUI) → done/error.
                ТОЛЬКО при пустой доске — Parser создаёт new (backpressure).
-  - webhook:   --trigger <job_id> оценивает ровно одно задание.
+  - trigger:   --trigger <job_id> оценивает ровно одно задание вручную.
 
 Отказоустойчивость: каждый job в try/except — падение субагента пишется
 в errors, тик продолжается. Снимки очередей берутся ДО мутаций: задание
 не проходит две стадии за один тик (ровно один шаг Kanban).
-
-При старте поднимает Webhook-приёмник Node 1 в daemon-потоке (best-effort:
-если порт занят отдельным `python -m core.webhook` — продолжаем без него).
 
 Запуск: `python -m core.orchestrator [--trigger JOB_ID]`
 """
@@ -42,9 +40,9 @@ from core.evaluator import QualityEvaluator
 from core.llm import LLMClient
 from core.parser import TrendParser
 from core.planner import ContentPlanner
+from core.poller import poll_once
 from core.prompter import PromptEngineer
 from core.publisher import Publisher
-from core.webhook import serve_in_background
 
 ACTIVE_STATUSES = (
     "new", "planned", "ready_for_render",
@@ -252,6 +250,7 @@ class Orchestrator:
         niche: Тематика для Парсера.
         workflow_template: Путь к шаблону workflow ComfyUI (assets/).
         workflow_dir: Каталог для сгенерированных workflow-файлов.
+        poller: Опрос истории ComfyUI (generating → done/error); None = выключен.
 
     Example:
         >>> summary = Orchestrator(db, parser, planner, prompter, evaluator, publisher, submit).run_once()
@@ -269,6 +268,7 @@ class Orchestrator:
         niche: str = "ai",
         workflow_template: str = "assets/comfyui_workflow_template.json",
         workflow_dir: str = "/tmp",
+        poller: Callable[[], dict[str, int]] | None = None,
     ) -> None:
         self._db = db
         self._parser = parser
@@ -280,12 +280,13 @@ class Orchestrator:
         self._niche = niche
         self._workflow_template = workflow_template
         self._workflow_dir = workflow_dir
+        self._poller = poller
 
     def run_once(self, trigger_job_id: str | None = None) -> dict[str, int]:
         """Один проход по доске. Returns: summary — процесс завершается сразу после."""
         summary: dict[str, int] = {
-            "created": 0, "planned": 0, "prompts": 0,
-            "submitted": 0, "evaluated": 0, "published": 0, "errors": 0,
+            "created": 0, "planned": 0, "prompts": 0, "submitted": 0,
+            "evaluated": 0, "published": 0, "polled": 0, "errors": 0,
         }
         if trigger_job_id is not None:
             self._evaluate_triggered(trigger_job_id, summary)
@@ -297,7 +298,7 @@ class Orchestrator:
     # --- Маршруты ----------------------------------------------------------------
 
     def _evaluate_triggered(self, job_id: str, summary: dict[str, int]) -> None:
-        """Webhook-маршрут: оценить ровно одно готовое задание."""
+        """Trigger-маршрут: оценить ровно одно готовое задание вручную."""
         job = self._db.fetch_job(job_id)
         if job is None or job["status"] != "done":
             self._db.log(
@@ -335,6 +336,16 @@ class Orchestrator:
         for job in new_jobs:
             self._guard(summary, "planned", job["job_id"],
                         partial(self._planner.plan_job, job["job_id"]))
+
+        # Poller: generating → done/error по истории ComfyUI (после снимков:
+        # свежие done пойдут в Evaluator только на следующем тике).
+        if self._poller is not None and self._db.fetch_jobs_by_status("generating"):
+            try:
+                result = self._poller()
+                summary["polled"] += result.get("done", 0)
+            except Exception as exc:
+                summary["errors"] += 1
+                self._db.log("ERROR", "orchestrator", f"poller: {exc}")
 
         if not any(self._db.fetch_jobs_by_status(s) for s in ACTIVE_STATUSES):
             self._create_from_trends(summary)
@@ -428,8 +439,8 @@ def _node1_call(settings: Settings, workflow_path: str) -> None:
 def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
     """Собирает Оркестратор с боевыми субагентами (единая точка wiring'а).
 
-    Используется CLI (`python -m core.orchestrator`) и Webhook-приёмником
-    (`python -m core.webhook`) для событийного триггера оценки задания.
+    Используется CLI (`python -m core.orchestrator`). Результаты Node 1
+    приходят через поллер истории ComfyUI (core.poller).
     """
     llm = LLMClient(settings)
 
@@ -460,40 +471,20 @@ def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
         niche=settings.content_niche,
         workflow_template=settings.comfyui_workflow_template,
         workflow_dir=settings.comfyui_workflow_dir,
+        poller=lambda: poll_once(db, settings),
     )
-
-
-def _start_webhook(settings: Settings, db: Database, orchestrator: Orchestrator) -> None:
-    """Поднимает Webhook-приёмник Node 1 в daemon-потоке (best-effort).
-
-    Порт занят отдельным процессом (`python -m core.webhook`) — не падаем:
-    приёмник жив, событийный триггер работает через него.
-    """
-    try:
-        serve_in_background(
-            db, Path(settings.shared_folder),
-            settings.webhook_host, settings.webhook_port,
-            on_done=lambda job_id: orchestrator.run_once(trigger_job_id=job_id),
-        )
-        db.log(
-            "INFO", "orchestrator",
-            f"webhook слушает {settings.webhook_host}:{settings.webhook_port}",
-        )
-    except OSError as exc:
-        db.log("WARNING", "orchestrator", f"webhook не поднят: {exc}")
 
 
 def main() -> None:
     """Точка входа: `python -m core.orchestrator [--trigger JOB_ID]`."""
     args = argparse.ArgumentParser(description="Оркестратор контент-завода")
-    args.add_argument("--trigger", default=None, help="job_id от Webhook Node 1")
+    args.add_argument("--trigger", default=None, help="job_id для ручной оценки задания")
     parsed = args.parse_args()
 
     settings = Settings()
     db = Database(settings.db_path)
     db.init_schema()
     orchestrator = build_orchestrator(settings, db)
-    _start_webhook(settings, db, orchestrator)
     orchestrator.run_once(trigger_job_id=parsed.trigger)
     db.close()
 

@@ -10,7 +10,7 @@
 `cli-anything-comfyui queue prompt --workflow PATH`.
 """
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -157,6 +157,7 @@ def make_orchestrator(
     publisher: _FakePublisher | None = None,
     submit: _FakeSubmit | None = None,
     workflow_template: str | None = None,
+    poller: Callable[[], dict[str, int]] | None = None,
 ) -> Orchestrator:
     """Оркестратор со всеми замоканными субагентами и tmp-шаблоном workflow."""
     template_path = tmp_path / "workflow_template.json"
@@ -173,6 +174,7 @@ def make_orchestrator(
         submit=submit or _FakeSubmit(),
         workflow_template=workflow_template,
         workflow_dir=str(tmp_path),
+        poller=poller,
     )
 
 
@@ -344,7 +346,7 @@ def test_bundled_workflow_template_is_valid() -> None:
     )
 
 
-# --- Маршрутизация по Webhook ---------------------------------------------------
+# --- Маршрутизация по trigger -----------------------------------------------------
 
 def test_webhook_trigger_evaluates_single_job(db: Database, tmp_path: Path, media: Path) -> None:
     """Триггер от Node 1: оценивается ТОЛЬКО указанный job, остальное не трогается."""
@@ -360,6 +362,51 @@ def test_webhook_trigger_evaluates_single_job(db: Database, tmp_path: Path, medi
     assert publisher.calls == []
     assert parser.calls == 0
     assert summary["evaluated"] == 1
+
+
+# --- Poller результатов ComfyUI (generating → done) --------------------------------
+
+def test_tick_polls_generating_jobs(db: Database, tmp_path: Path) -> None:
+    """Есть generating → поллер вызывается; свежий done в Evaluator НЕ идёт (1 шаг/тик)."""
+    db.upsert_job("job-p", "generating")
+    evaluator = _FakeEvaluator(db)
+
+    def poller() -> dict[str, int]:
+        db.upsert_job("job-p", "done", file_path="LTX_Output_job-p_.mp4")
+        return {"checked": 1, "done": 1, "errors": 0}
+
+    summary = make_orchestrator(db, tmp_path, evaluator=evaluator, poller=poller).run_once()
+    assert summary["polled"] == 1
+    job = db.fetch_job("job-p")
+    assert job is not None and job["status"] == "done"
+    assert evaluator.calls == []  # done после снимка — оценка на следующем тике
+
+
+def test_tick_skips_poller_without_generating(db: Database, tmp_path: Path) -> None:
+    """Нет generating → поллер не дёргается, summary['polled'] == 0."""
+    calls: list[str] = []
+
+    def poller() -> dict[str, int]:
+        calls.append("called")
+        return {"checked": 0, "done": 0, "errors": 0}
+
+    summary = make_orchestrator(db, tmp_path, poller=poller).run_once()
+    assert summary["polled"] == 0
+    assert calls == []
+
+
+def test_tick_survives_poller_failure(db: Database, tmp_path: Path) -> None:
+    """Падение поллера пишется в errors и не роняет остальные стадии тика."""
+    db.upsert_job("job-g", "generating")
+    db.upsert_job("job-c", "new")
+    planner = _FakePlanner(db)
+
+    def broken() -> dict[str, int]:
+        raise RuntimeError("comfyui unreachable")
+
+    summary = make_orchestrator(db, tmp_path, planner=planner, poller=broken).run_once()
+    assert summary["errors"] == 1
+    assert planner.calls == ["job-c"]  # остальные стадии отработали
 
 
 # --- Отказоустойчивость ----------------------------------------------------------

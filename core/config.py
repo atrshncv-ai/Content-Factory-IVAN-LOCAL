@@ -24,8 +24,6 @@ class Settings(BaseSettings):
         scrape_creators_api_key: Ключ Scrape Creators API (primary-парсер).
         scrape_creators_base_url: Базовый URL Scrape Creators API.
         shared_folder: Локальный путь к Shared Folder (шаринг с Node 1).
-        webhook_host: Интерфейс Webhook-приёмника.
-        webhook_port: Порт Webhook-приёмника.
         evaluator_max_retries: Safety Valve микро-Ralph Loop Контролёра Качества.
         autopost_command: Команда CLI-утилиты автопостинга (SMM-Паблишер).
         comfyui_command: Команда cli-anything-comfyui (отправка на Node 1).
@@ -60,8 +58,6 @@ class Settings(BaseSettings):
     scrape_creators_base_url: str = "https://api.scrapecreators.com/v1"
 
     shared_folder: str = "shared"
-    webhook_host: str = "0.0.0.0"
-    webhook_port: int = 8099
 
     evaluator_max_retries: int = 3
 

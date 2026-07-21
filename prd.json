@@ -23,7 +23,7 @@
     {
       "id": "4",
       "phase": "Node 1 Connection",
-      "description": "Настройка Webhook-приемника для связи с ComfyUI и логики чтения из Shared Folder",
+      "description": "Активный поллер истории ComfyUI (core/poller.py) для получения результатов: generating → done/error, вместо Webhook-приёмника",
       "passes": true
     },
     {
@@ -47,7 +47,7 @@
     {
       "id": "8",
       "phase": "Watch Folder (Node 2 ↔ Node 1)",
-      "description": "Постановка задач на ComfyUI: push через cli-anything-comfyui (--url из .env) + Webhook-приёмник с событийным триггером Оркестратора на статус done",
+      "description": "Постановка задач на ComfyUI: push через cli-anything-comfyui (--url из .env) + поллер истории ComfyUI для перехода generating → done/error",
       "passes": true
     }
   ]

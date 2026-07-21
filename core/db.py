@@ -74,7 +74,7 @@ class Database:
         """Открывает (или создаёт) файл БД; родительская папка создаётся автоматически.
 
         check_same_thread=False + Lock: соединением можно делиться между
-        потоками (Webhook-сервер обрабатывает запросы в своих потоках).
+        потоками (фоновые процессы Node 2 работают в своих потоках).
         """
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
