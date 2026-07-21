@@ -9,3 +9,7 @@ graphify-out/
 
 # Локальный скрипт инициализации Node 1 — содержит пароль, в git не попадает
 setup.bat
+
+# TLS-артефакты tailscale cert (приватные ключи — не в git)
+*.key
+*.crt
