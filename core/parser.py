@@ -11,14 +11,34 @@
 это граница мокирования в тестах и единая точка отказоустойчивости.
 """
 import asyncio
+import concurrent.futures
 import json
 import subprocess
 import urllib.parse
 import urllib.request
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 from core.config import Settings
 
 DEFAULT_LIMIT = 10
+
+_T = TypeVar("_T")
+
+
+def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Безопасный запуск корутины из синхронного кода.
+
+    asyncio.run() падает с RuntimeError, если в вызывающем потоке уже
+    работает event loop (вызов из async-окружения). В этом случае корутина
+    уезжает в отдельный поток со своим свежим loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)  # активного loop нет — обычный путь
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 class ParserUnavailableError(RuntimeError):
@@ -125,8 +145,8 @@ class TrendParser:
     def _from_crawl4ai(self, query: str, limit: int) -> list[dict[str, object]]:
         """Fallback: web-crawling через crawl4ai (async, без API-ключа)."""
         url = f"https://www.google.com/search?q=instagram+trending+reels+{query}"
-        # crawl4ai требует async — asyncio.run создаёт изолированный event loop
-        return asyncio.run(self._crawl4ai_fetch(url, limit))
+        # crawl4ai требует async — безопасный мост sync→async (см. _run_async)
+        return _run_async(self._crawl4ai_fetch(url, limit))
 
     async def _crawl4ai_fetch(self, url: str, limit: int) -> list[dict[str, object]]:
         """Асинхронный краулинг одной страницы."""

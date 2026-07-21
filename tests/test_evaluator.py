@@ -121,3 +121,23 @@ def test_invalid_model_json_counts_as_rejection(db: Database, job: str) -> None:
     assert result["approved"] is True
     assert llm.calls == 2
     assert len(regen.calls) == 1
+
+
+def test_video_file_auto_approved_without_vision(db: Database, tmp_path: Path) -> None:
+    """Видео (.mp4 от LTX): auto-approve без Vision-вызова и перегенераций."""
+    video = tmp_path / "job-v.mp4"
+    video.write_bytes(b"\x00\x00\x00\x18ftypmp42 fake video")
+    db.upsert_job("job-v", "done", str(video))
+    llm = _FakeLLM([APPROVED])
+    regen = _FakeRegenerate()
+    evaluator = QualityEvaluator(llm, db, regen, max_retries=3)
+
+    result = evaluator.evaluate_job("job-v")
+
+    assert result["approved"] is True
+    assert result["attempts"] == 0
+    assert llm.calls == 0  # Vision не дёргался
+    assert regen.calls == []
+    job_row = db.fetch_job("job-v")
+    assert job_row is not None and job_row["status"] == "approved"
+    assert any("auto-approve" in log["message"] for log in db.fetch_logs())

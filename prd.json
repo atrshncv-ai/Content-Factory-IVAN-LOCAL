@@ -47,7 +47,7 @@
     {
       "id": "8",
       "phase": "Watch Folder (Node 2 ↔ Node 1)",
-      "description": "Постановка задач на ComfyUI через Shared Folder при заблокированном API: orchestrator_sender (Node 2) + node1_watchdog (Node 1)",
+      "description": "Постановка задач на ComfyUI: push через cli-anything-comfyui (--url из .env) + Webhook-приёмник с событийным триггером Оркестратора на статус done",
       "passes": true
     }
   ]

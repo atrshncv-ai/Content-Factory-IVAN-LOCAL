@@ -4,7 +4,10 @@ Node 1 по завершении генерации шлёт POST /webhook с JS
 {job_id, status, filename}. Модуль:
   1. валидирует payload (включая защиту от path traversal);
   2. проверяет наличие файла в Shared Folder (сетевой шаринг, путь из .env);
-  3. обновляет статус в media_jobs (core/db.py) и пишет аудит-лог.
+  3. обновляет статус в media_jobs (core/db.py) и пишет аудит-лог;
+  4. при статусе 'done' событийно триггерит тик Оркестратора (on_done) —
+     Ambient Processing из AGENTS.md: оценка задания по входящему событию,
+     без ожидания cron-тика.
 
 Архитектура (Ponytail): stdlib http.server, ноль зависимостей. Логика
 (`handle_webhook`) отделена от транспорта — тестируется без сокетов.
@@ -13,6 +16,7 @@ Node 1 по завершении генерации шлёт POST /webhook с JS
 """
 import json
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -63,13 +67,30 @@ def handle_webhook(
     }
 
 
+def _run_on_done(
+    on_done: Callable[[str], Any], db: Database, job_id: str
+) -> None:
+    """Событийный триггер Оркестратора; его падение не роняет приёмник."""
+    try:
+        on_done(job_id)
+    except Exception as exc:
+        db.log("ERROR", "webhook", f"on_done {job_id}: {exc}")
+
+
 def _make_handler(
-    db: Database, shared_folder: Path
+    db: Database,
+    shared_folder: Path,
+    on_done: Callable[[str], Any] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
-    """Фабрика HTTP-handler'а с замкнутыми db и shared_folder."""
+    """Фабрика HTTP-handler'а с замкнутыми db, shared_folder и on_done.
+
+    on_done: коллбэк событийного триггера Оркестратора. Вызывается в
+    отдельном daemon-потоке ПОСЛЕ ответа Node 1 и только для статуса
+    'done' — медленная оценка не блокирует HTTP-ответ.
+    """
 
     class WebhookHandler(BaseHTTPRequestHandler):
-        """POST /webhook → handle_webhook → JSON-ответ."""
+        """POST /webhook → handle_webhook → JSON-ответ → триггер на done."""
 
         def do_POST(self) -> None:
             if self.path != "/webhook":
@@ -90,6 +111,12 @@ def _make_handler(
                 self._respond(400, result)
             else:
                 self._respond(404, result)
+            if result["ok"] and result.get("status") == "done" and on_done is not None:
+                threading.Thread(
+                    target=_run_on_done,
+                    args=(on_done, db, str(result["job_id"])),
+                    daemon=True,
+                ).start()
 
         def _respond(self, status: int, body: dict) -> None:
             data = json.dumps(body).encode("utf-8")
@@ -106,29 +133,47 @@ def _make_handler(
 
 
 def serve_in_background(
-    db: Database, shared_folder: Path, host: str, port: int
+    db: Database,
+    shared_folder: Path,
+    host: str,
+    port: int,
+    on_done: Callable[[str], Any] | None = None,
 ) -> ThreadingHTTPServer:
     """Поднимает Webhook-сервер в daemon-потоке (не блокирует Оркестратор).
 
     Args:
         port: 0 = эфемерный порт (для тестов).
+        on_done: триггер Оркестратора на статус 'done' (см. _make_handler).
 
     Returns:
         Запущенный сервер; остановка — `httpd.shutdown()`.
     """
-    httpd = ThreadingHTTPServer((host, port), _make_handler(db, shared_folder))
+    httpd = ThreadingHTTPServer(
+        (host, port), _make_handler(db, shared_folder, on_done)
+    )
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 
 
 def main() -> None:
-    """Foreground-запуск приёмника как отдельного процесса (`python -m core.webhook`)."""
+    """Foreground-запуск приёмника как отдельного процесса (`python -m core.webhook`).
+
+    При статусе 'done' событийно триггерит тик Оркестратора для оценки
+    задания (AGENTS.md: Ambient Processing — запуск по входящему Webhook).
+    """
+    from core.orchestrator import build_orchestrator  # lazy: защита от цикла импортов
+
     settings = Settings()
     database = Database(settings.db_path)
     database.init_schema()
+    orchestrator = build_orchestrator(settings, database)
     httpd = ThreadingHTTPServer(
         (settings.webhook_host, settings.webhook_port),
-        _make_handler(database, Path(settings.shared_folder)),
+        _make_handler(
+            database,
+            Path(settings.shared_folder),
+            on_done=lambda job_id: orchestrator.run_once(trigger_job_id=job_id),
+        ),
     )
     database.log(
         "INFO", "webhook",

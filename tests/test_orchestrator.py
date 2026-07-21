@@ -83,17 +83,31 @@ class _FakeEvaluator:
 
 
 class _FakePublisher:
-    """Publisher-заглушка: отдаёт post_id; падает на файлах с меткой fail_on."""
+    """Publisher-заглушка: отдаёт post_id; падает на файлах с меткой fail_on.
 
-    def __init__(self, fail_on: str | None = None) -> None:
+    fail_metrics=True — collect_metrics падает (публикация должна устоять).
+    """
+
+    def __init__(self, fail_on: str | None = None, fail_metrics: bool = False) -> None:
         self.calls: list[str] = []
+        self.metrics_calls: list[tuple[str, str]] = []
         self._fail_on = fail_on
+        self._fail_metrics = fail_metrics
 
     def publish(self, media_path: str, caption: str) -> str:
         self.calls.append(media_path)
         if self._fail_on and self._fail_on in media_path:
             raise PublishError("CLI down")
         return "post-1"
+
+    def collect_metrics(self, post_id: str, period: str) -> dict[str, Any]:
+        self.metrics_calls.append((post_id, period))
+        if self._fail_metrics:
+            raise PublishError("metrics CLI down")
+        return {
+            "post_id": post_id, "period": period,
+            "likes": 0, "comments": 0, "reach": 0,
+        }
 
 
 class _FakeSubmit:
@@ -257,6 +271,7 @@ def test_tick_publishes_approved_jobs(db: Database, tmp_path: Path, media: Path)
     publisher = _FakePublisher()
     summary = make_orchestrator(db, tmp_path, publisher=publisher).run_once()
     assert publisher.calls == [str(media)]
+    assert publisher.metrics_calls == [("post-1", "1d")]
     assert summary["published"] == 1
     job = db.fetch_job("job-b")
     assert job is not None and job["status"] == "published"
@@ -302,11 +317,16 @@ def test_tick_full_pipeline_one_pass(db: Database, tmp_path: Path, media: Path) 
 # --- CLI-контракт Node 1 ---------------------------------------------------------
 
 def test_node1_command_is_queue_prompt_with_workflow() -> None:
-    """Реальный контракт cli-anything-comfyui: queue prompt --workflow PATH."""
-    settings = IsolatedSettings(comfyui_command="cli-anything-comfyui")
+    """Реальный контракт: --url из settings + queue prompt --workflow PATH."""
+    settings = IsolatedSettings(
+        comfyui_command="cli-anything-comfyui",
+        comfyui_server_url="http://100.64.1.1:8188",
+    )
     command = _build_node1_command(settings, "/tmp/job_job-1_workflow.json")
     assert command == [
-        "cli-anything-comfyui", "queue", "prompt",
+        "cli-anything-comfyui",
+        "--url", "http://100.64.1.1:8188",
+        "queue", "prompt",
         "--workflow", "/tmp/job_job-1_workflow.json",
     ]
 
@@ -437,3 +457,18 @@ def test_ltx_video_workflow_is_patched(
             assert node["inputs"]["save_output"] is True
             assert job_id in str(node["inputs"]["filename_prefix"])
     assert "Тест конфи.mp3" in caplog.text
+
+
+def test_metrics_failure_keeps_job_published(
+    db: Database, tmp_path: Path, media: Path
+) -> None:
+    """Сбой collect_metrics НЕ откатывает публикацию: published + ошибка в summary."""
+    db.upsert_job("job-m", "approved", str(media))
+    publisher = _FakePublisher(fail_metrics=True)
+    summary = make_orchestrator(db, tmp_path, publisher=publisher).run_once()
+    assert publisher.calls == [str(media)]
+    assert publisher.metrics_calls == [("post-1", "1d")]
+    assert summary["published"] == 0   # guard засчитал ошибку, а не публикацию
+    assert summary["errors"] == 1
+    job = db.fetch_job("job-m")
+    assert job is not None and job["status"] == "published"  # пост не ре-постится

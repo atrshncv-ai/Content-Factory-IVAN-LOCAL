@@ -198,3 +198,30 @@ def test_raises_when_all_paths_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     with pytest.raises(ParserUnavailableError):
         parser.fetch_trends("fitness")
+
+
+# --- Мост sync→async (_run_async) ----------------------------------------------
+
+def test_run_async_without_running_loop() -> None:
+    """Обычный путь: нет активного loop — asyncio.run напрямую."""
+    from core.parser import _run_async
+
+    async def coro() -> str:
+        return "ok"
+
+    assert _run_async(coro()) == "ok"
+
+
+def test_run_async_inside_running_loop() -> None:
+    """Регресс: вызов из работающего event loop не падает с RuntimeError."""
+    import asyncio
+
+    from core.parser import _run_async
+
+    async def coro() -> int:
+        return 42
+
+    async def main() -> int:
+        return _run_async(coro())
+
+    assert asyncio.run(main()) == 42

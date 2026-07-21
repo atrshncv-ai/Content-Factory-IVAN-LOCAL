@@ -19,6 +19,9 @@
 в errors, тик продолжается. Снимки очередей берутся ДО мутаций: задание
 не проходит две стадии за один тик (ровно один шаг Kanban).
 
+При старте поднимает Webhook-приёмник Node 1 в daemon-потоке (best-effort:
+если порт занят отдельным `python -m core.webhook` — продолжаем без него).
+
 Запуск: `python -m core.orchestrator [--trigger JOB_ID]`
 """
 import argparse
@@ -41,6 +44,7 @@ from core.parser import TrendParser
 from core.planner import ContentPlanner
 from core.prompter import PromptEngineer
 from core.publisher import Publisher
+from core.webhook import serve_in_background
 
 ACTIVE_STATUSES = (
     "new", "planned", "ready_for_render",
@@ -207,6 +211,7 @@ class JobEvaluator(Protocol):
 class PostPublisher(Protocol):
     """Интерфейс SMM-Паблишера для Оркестратора."""
     def publish(self, media_path: str, caption: str) -> str: ...
+    def collect_metrics(self, post_id: str, period: str) -> dict[str, Any]: ...
 
 
 class JobPlanner(Protocol):
@@ -350,10 +355,15 @@ class Orchestrator:
             self._db.log("ERROR", "orchestrator", f"parser: {exc}")
 
     def _publish_approved(self, job: Any) -> None:
-        """approved → published: постинг через CLI, затем фиксация статуса."""
+        """approved → published: постинг через CLI, статус, затем метрики 1d.
+
+        Статус фиксируется ДО сбора метрик: сбой CLI метрик не должен
+        откатывать публикацию (ошибка уйдёт в errors, пост не ре-постится).
+        """
         caption = job["concept"] or self._caption(job["job_id"])
-        self._publisher.publish(job["file_path"], caption)
+        post_id = self._publisher.publish(job["file_path"], caption)
         self._db.upsert_job(job["job_id"], "published")
+        self._publisher.collect_metrics(post_id, "1d")
 
     def _submit_ready(self, job: Any) -> None:
         """ready_for_render → generating: workflow-JSON → очередь Node 1.
@@ -396,8 +406,16 @@ class Orchestrator:
 
 
 def _build_node1_command(settings: Settings, workflow_path: str) -> list[str]:
-    """Реальный контракт cli-anything-comfyui: queue prompt --workflow PATH."""
-    return [settings.comfyui_command, "queue", "prompt", "--workflow", workflow_path]
+    """Реальный контракт cli-anything-comfyui: --url URL queue prompt --workflow PATH.
+
+    --url — глобальная опция CLI (идёт ПЕРЕД подкомандой): без неё CLI
+    стучится на localhost:8188, а ComfyUI живёт на Node 1 (Tailscale).
+    """
+    return [
+        settings.comfyui_command,
+        "--url", settings.comfyui_server_url,
+        "queue", "prompt", "--workflow", workflow_path,
+    ]
 
 
 def _node1_call(settings: Settings, workflow_path: str) -> None:
@@ -407,15 +425,12 @@ def _node1_call(settings: Settings, workflow_path: str) -> None:
     )
 
 
-def main() -> None:
-    """Точка входа: `python -m core.orchestrator [--trigger JOB_ID]`."""
-    args = argparse.ArgumentParser(description="Оркестратор контент-завода")
-    args.add_argument("--trigger", default=None, help="job_id от Webhook Node 1")
-    parsed = args.parse_args()
+def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
+    """Собирает Оркестратор с боевыми субагентами (единая точка wiring'а).
 
-    settings = Settings()
-    db = Database(settings.db_path)
-    db.init_schema()
+    Используется CLI (`python -m core.orchestrator`) и Webhook-приёмником
+    (`python -m core.webhook`) для событийного триггера оценки задания.
+    """
     llm = LLMClient(settings)
 
     def _regenerate(job_id: str) -> None:
@@ -430,7 +445,7 @@ def main() -> None:
         )
         _node1_call(settings, str(workflow))
 
-    orchestrator = Orchestrator(
+    return Orchestrator(
         db=db,
         parser=TrendParser(settings),
         planner=ContentPlanner(llm, db, niche=settings.content_niche),
@@ -446,6 +461,39 @@ def main() -> None:
         workflow_template=settings.comfyui_workflow_template,
         workflow_dir=settings.comfyui_workflow_dir,
     )
+
+
+def _start_webhook(settings: Settings, db: Database, orchestrator: Orchestrator) -> None:
+    """Поднимает Webhook-приёмник Node 1 в daemon-потоке (best-effort).
+
+    Порт занят отдельным процессом (`python -m core.webhook`) — не падаем:
+    приёмник жив, событийный триггер работает через него.
+    """
+    try:
+        serve_in_background(
+            db, Path(settings.shared_folder),
+            settings.webhook_host, settings.webhook_port,
+            on_done=lambda job_id: orchestrator.run_once(trigger_job_id=job_id),
+        )
+        db.log(
+            "INFO", "orchestrator",
+            f"webhook слушает {settings.webhook_host}:{settings.webhook_port}",
+        )
+    except OSError as exc:
+        db.log("WARNING", "orchestrator", f"webhook не поднят: {exc}")
+
+
+def main() -> None:
+    """Точка входа: `python -m core.orchestrator [--trigger JOB_ID]`."""
+    args = argparse.ArgumentParser(description="Оркестратор контент-завода")
+    args.add_argument("--trigger", default=None, help="job_id от Webhook Node 1")
+    parsed = args.parse_args()
+
+    settings = Settings()
+    db = Database(settings.db_path)
+    db.init_schema()
+    orchestrator = build_orchestrator(settings, db)
+    _start_webhook(settings, db, orchestrator)
     orchestrator.run_once(trigger_job_id=parsed.trigger)
     db.close()
 

@@ -9,6 +9,9 @@
 MAX_RETRIES; при исчерпании лимита задание помечается 'failed', а процесс
 завершается — бюджет токенов под контролем.
 
+Видео-файлы (LTX производит .mp4) Vision-модель не поддерживает: для них —
+Gate auto-approve без микро-цикла (см. VIDEO_EXTENSIONS).
+
 Невалидный/мусорный ответ модели считается браком: судья никогда не падает
 (отказоустойчивость — в обвязке, не в модели).
 """
@@ -23,6 +26,9 @@ from typing import Any, Protocol
 from openai.types.chat import ChatCompletionMessageParam
 
 from core.db import Database
+
+# Расширения видео-файлов: Vision-модель их не поддерживает — auto-approve.
+VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov"})
 
 VISION_PROMPT = """Ты — строгий контролёр качества AI-изображений для Instagram. Проверь картинку:
 1. АНАТОМИЯ: лишние/недостающие пальцы и конечности, деформированные кисти,
@@ -114,7 +120,7 @@ class QualityEvaluator:
         return parse_verdict(self._llm.chat(messages))
 
     def evaluate_job(self, job_id: str) -> dict[str, Any]:
-        """Оценивает задание в микро-цикле: брак → перегенерация, до MAX_RETRIES.
+        """Оценивает задание: видео — auto-approve, изображение — микро-цикл.
 
         Args:
             job_id: Задание со статусом 'done' и file_path в media_jobs.
@@ -128,11 +134,25 @@ class QualityEvaluator:
         job = self._db.fetch_job(job_id)
         if job is None or not job["file_path"]:
             raise ValueError(f"задание без файла: {job_id}")
-        image_path = Path(job["file_path"])
+        media_path = Path(job["file_path"])
+
+        # Gate для видео (LTX): Vision-модель видео не поддерживает —
+        # пропускаем без оценки и без микро-цикла перегенерации.
+        if media_path.suffix.lower() in VIDEO_EXTENSIONS:
+            self._db.log(
+                "INFO", "evaluator",
+                f"job {job_id}: видео ({media_path.suffix}) — auto-approve "
+                "без Vision-оценки",
+            )
+            self._db.upsert_job(job_id, "approved")
+            return {
+                "approved": True, "job_id": job_id,
+                "attempts": 0, "reason": "видео: Vision-оценка не поддерживается",
+            }
 
         attempts = 0
         while True:  # микро-Ralph Loop — разрешён AGENTS.md только здесь
-            verdict = self.evaluate_image(image_path)
+            verdict = self.evaluate_image(media_path)
             self._db.log(
                 "INFO", "evaluator",
                 f"job {job_id}: approved={verdict.approved} — {verdict.reason}",
