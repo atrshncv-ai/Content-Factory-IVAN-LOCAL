@@ -18,6 +18,7 @@ Ponytail: только stdlib (json, os, time, urllib).
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -27,6 +28,10 @@ COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188/prompt")
 # Direct-коннект без системного прокси: на ПК клиента стоит Happ/VPN,
 # чей системный прокси перехватывает даже 127.0.0.1 и вешает запросы.
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+# POST ждёт долго: ComfyUI под нагрузкой (загрузка моделей) отвечает
+# медленно, но принимает задачу. Короткий таймаут = дубли в очереди.
+POST_TIMEOUT = 180
 
 
 def _get_json(url: str) -> Any:
@@ -58,8 +63,16 @@ def submit(workflow: Any, name: str) -> None:
     req = urllib.request.Request(
         COMFYUI_URL, data=payload, headers={"Content-Type": "application/json"},
     )
-    with _OPENER.open(req, timeout=30) as resp:
+    with _OPENER.open(req, timeout=POST_TIMEOUT) as resp:
         print(f"OK {name}: HTTP {resp.status}")
+
+
+def _safe_delete(name: str) -> None:
+    """Удалить бракованную задачу с сервера, не роняя цикл."""
+    try:
+        delete_job(name)
+    except Exception as exc:
+        print(f"Не удалось удалить {name} с сервера: {exc}")
 
 
 def main() -> None:
@@ -76,6 +89,15 @@ def main() -> None:
                 workflow = fetch_job(name)
                 submit(workflow, name)
                 delete_job(name)
+            except json.JSONDecodeError as exc:
+                print(f"BAD {name}: невалидный JSON ({exc})")
+                _safe_delete(name)
+            except urllib.error.HTTPError as exc:
+                if 400 <= exc.code < 500:
+                    print(f"BAD {name}: ComfyUI отверг workflow (HTTP {exc.code})")
+                    _safe_delete(name)
+                else:
+                    print(f"RETRY {name}: HTTP {exc.code}")
             except Exception as exc:
                 # Файл остаётся на Node 2 — повтор на следующем тике.
                 print(f"RETRY {name}: {exc}")
