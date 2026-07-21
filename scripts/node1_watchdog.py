@@ -24,10 +24,14 @@ from typing import Any
 NODE2_URL = os.environ.get("NODE2_URL", "http://100.123.244.99:8899")
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://127.0.0.1:8188/prompt")
 
+# Direct-коннект без системного прокси: на ПК клиента стоит Happ/VPN,
+# чей системный прокси перехватывает даже 127.0.0.1 и вешает запросы.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def _get_json(url: str) -> Any:
     """GET-запрос, ожидающий JSON."""
-    with urllib.request.urlopen(url, timeout=10) as resp:
+    with _OPENER.open(url, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -44,7 +48,7 @@ def fetch_job(name: str) -> Any:
 def delete_job(name: str) -> None:
     """DELETE /job_X.json — удалить отработанный файл на Node 2."""
     req = urllib.request.Request(f"{NODE2_URL}/{name}", method="DELETE")
-    with urllib.request.urlopen(req, timeout=10):
+    with _OPENER.open(req, timeout=10):
         pass
 
 
@@ -54,7 +58,7 @@ def submit(workflow: Any, name: str) -> None:
     req = urllib.request.Request(
         COMFYUI_URL, data=payload, headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with _OPENER.open(req, timeout=30) as resp:
         print(f"OK {name}: HTTP {resp.status}")
 
 
