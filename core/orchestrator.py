@@ -26,7 +26,6 @@ import argparse
 import hashlib
 import json
 import logging
-import subprocess
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -239,6 +238,12 @@ def _job_id_from_trend(trend: dict[str, object]) -> str:
 class Orchestrator:
     """Supervisor: двигает Kanban-доску media_jobs на один шаг за запуск.
 
+    Гибридная модель A+B:
+      A (Pull): ready_for_render → generating: workflow-JSON записывается в jobs_dir
+        для подхвата node1_watchdog.py (Node 1 сам забирает задачи).
+      B (Poll): generating → done/error: core.poller.py опрашивает историю ComfyUI
+        через cli-anything-comfyui queue history.
+
     Args:
         db: Операционная БД (доска + журнал).
         parser: Парсер трендов (создание новых заданий).
@@ -246,14 +251,14 @@ class Orchestrator:
         prompter: Промпт-инженер (planned → ready_for_render).
         evaluator: Контролёр Качества (done → approved/failed).
         publisher: SMM-Паблишер (approved → published).
-        submit: Постановка workflow в очередь Node 1: (job_id, workflow_path).
+        jobs_dir: Папка для job-файлов (pull-модель: node1_watchdog.py забирает отсюда).
         niche: Тематика для Парсера.
         workflow_template: Путь к шаблону workflow ComfyUI (assets/).
         workflow_dir: Каталог для сгенерированных workflow-файлов.
         poller: Опрос истории ComfyUI (generating → done/error); None = выключен.
 
     Example:
-        >>> summary = Orchestrator(db, parser, planner, prompter, evaluator, publisher, submit).run_once()
+        >>> summary = Orchestrator(db, parser, planner, prompter, evaluator, publisher, jobs_dir="data/jobs").run_once()
     """
 
     def __init__(
@@ -264,7 +269,7 @@ class Orchestrator:
         prompter: JobPrompter,
         evaluator: JobEvaluator,
         publisher: PostPublisher,
-        submit: Callable[[str, str], None],
+        jobs_dir: str = "data/jobs",
         niche: str = "ai",
         workflow_template: str = "assets/comfyui_workflow_template.json",
         workflow_dir: str = "/tmp",
@@ -276,7 +281,7 @@ class Orchestrator:
         self._prompter = prompter
         self._evaluator = evaluator
         self._publisher = publisher
-        self._submit = submit
+        self._jobs_dir = Path(jobs_dir)
         self._niche = niche
         self._workflow_template = workflow_template
         self._workflow_dir = workflow_dir
@@ -377,7 +382,11 @@ class Orchestrator:
         self._publisher.collect_metrics(post_id, "1d")
 
     def _submit_ready(self, job: Any) -> None:
-        """ready_for_render → generating: workflow-JSON → очередь Node 1.
+        """ready_for_render → generating: workflow-JSON → data/jobs/ (pull-модель).
+
+        Гибрид A+B: файл записывается в jobs_dir, node1_watchdog.py на Node 1
+        забирает его через HTTP GET от job_server.py. Результаты возвращаются
+        через poll_once (core/poller.py).
 
         Для статики video_prompt игнорируется и логируется.
         Для LTX-видео video_prompt подставляется в шаблон программно.
@@ -395,7 +404,14 @@ class Orchestrator:
             self._workflow_dir,
             video_prompt=video_prompt,
         )
-        self._submit(job["job_id"], str(workflow))
+        # Pull-модель: копируем workflow-JSON в jobs_dir для node1_watchdog.py
+        job_file = self._jobs_dir / f"job_{job['job_id']}_workflow.json"
+        job_file.parent.mkdir(parents=True, exist_ok=True)
+        job_file.write_text(workflow.read_text(encoding="utf-8"), encoding="utf-8")
+        self._db.log(
+            "INFO", "orchestrator",
+            f"job {job['job_id']}: workflow → {job_file} (pull-канал)",
+        )
         self._db.upsert_job(job["job_id"], "generating")
 
     # --- Хелперы ------------------------------------------------------------------
@@ -421,19 +437,15 @@ def _build_node1_command(settings: Settings, workflow_path: str) -> list[str]:
 
     --url — глобальная опция CLI (идёт ПЕРЕД подкомандой): без неё CLI
     стучится на localhost:8188, а ComfyUI живёт на Node 1 (Tailscale).
+
+    Сохранён для обратной совместимости и тестов. В продакшене pull-модель
+    (jobs_dir + node1_watchdog.py) заменяет прямой вызов.
     """
     return [
         settings.comfyui_command,
         "--url", settings.comfyui_server_url,
         "queue", "prompt", "--workflow", workflow_path,
     ]
-
-
-def _node1_call(settings: Settings, workflow_path: str) -> None:
-    """Ставит workflow-файл в очередь рендера Node 1."""
-    subprocess.run(
-        _build_node1_command(settings, workflow_path), check=True, timeout=600,
-    )
 
 
 def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
@@ -445,7 +457,7 @@ def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
     llm = LLMClient(settings)
 
     def _regenerate(job_id: str) -> None:
-        """Перегенерация = повторная постановка workflow в очередь ComfyUI."""
+        """Перегенерация = повторная постановка workflow в jobs_dir (pull-модель)."""
         job = db.fetch_job(job_id)
         prompt = str(job["photo_prompt"] or "") if job is not None else ""
         video_prompt = str(job["video_prompt"] or "") if job is not None else ""
@@ -454,7 +466,10 @@ def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
             settings.comfyui_workflow_dir,
             video_prompt=video_prompt,
         )
-        _node1_call(settings, str(workflow))
+        jobs_dir = Path(settings.jobs_dir)
+        job_file = jobs_dir / f"job_{job_id}_workflow.json"
+        job_file.parent.mkdir(parents=True, exist_ok=True)
+        job_file.write_text(workflow.read_text(encoding="utf-8"), encoding="utf-8")
 
     return Orchestrator(
         db=db,
@@ -467,7 +482,7 @@ def build_orchestrator(settings: Settings, db: Database) -> Orchestrator:
             max_retries=settings.evaluator_max_retries,
         ),
         publisher=Publisher(settings, db),
-        submit=lambda job_id, wf_path: _node1_call(settings, wf_path),
+        jobs_dir=settings.jobs_dir,
         niche=settings.content_niche,
         workflow_template=settings.comfyui_workflow_template,
         workflow_dir=settings.comfyui_workflow_dir,

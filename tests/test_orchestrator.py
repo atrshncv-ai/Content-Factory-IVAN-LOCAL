@@ -111,7 +111,12 @@ class _FakePublisher:
 
 
 class _FakeSubmit:
-    """Отправка workflow на Node 1 — заглушка: записывает (job_id, путь к workflow)."""
+    """Устаревшая заглушка — оставлена для обратной совместимости тестов.
+
+    В гибридной модели A+B workflow-файлы пишутся в jobs_dir (pull-модель),
+    а не отправляются через push. Эта заглушка больше не используется
+    в новых тестах.
+    """
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -155,8 +160,8 @@ def make_orchestrator(
     prompter: _FakePrompter | None = None,
     evaluator: _FakeEvaluator | None = None,
     publisher: _FakePublisher | None = None,
-    submit: _FakeSubmit | None = None,
     workflow_template: str | None = None,
+    jobs_dir: str | None = None,
     poller: Callable[[], dict[str, int]] | None = None,
 ) -> Orchestrator:
     """Оркестратор со всеми замоканными субагентами и tmp-шаблоном workflow."""
@@ -164,6 +169,8 @@ def make_orchestrator(
     if workflow_template is None:
         template_path.write_text(json.dumps(TEMPLATE_STUB), encoding="utf-8")
         workflow_template = str(template_path)
+    if jobs_dir is None:
+        jobs_dir = str(tmp_path / "jobs")
     return Orchestrator(
         db=db,
         parser=parser or _FakeParser([]),
@@ -171,7 +178,7 @@ def make_orchestrator(
         prompter=prompter or _FakePrompter(db),
         evaluator=evaluator or _FakeEvaluator(db),
         publisher=publisher or _FakePublisher(),
-        submit=submit or _FakeSubmit(),
+        jobs_dir=jobs_dir,
         workflow_template=workflow_template,
         workflow_dir=str(tmp_path),
         poller=poller,
@@ -213,28 +220,31 @@ def test_tick_planned_goes_to_prompter(db: Database, tmp_path: Path) -> None:
     assert job["photo_prompt"] is not None
 
 
-def test_tick_ready_goes_to_node1(db: Database, tmp_path: Path) -> None:
-    """ready_for_render → workflow отрендерен, submit → generating."""
+def test_tick_ready_goes_to_generating(db: Database, tmp_path: Path) -> None:
+    """ready_for_render → workflow-JSON записан в jobs_dir, статус generating."""
     db.upsert_job("job-e", "ready_for_render")
-    submit = _FakeSubmit()
-    summary = make_orchestrator(db, tmp_path, submit=submit).run_once()
-    assert submit.calls == ["job-e"]
+    jobs_dir = str(tmp_path / "jobs")
+    summary = make_orchestrator(db, tmp_path, jobs_dir=jobs_dir).run_once()
     assert summary["submitted"] == 1
     job = db.fetch_job("job-e")
     assert job is not None and job["status"] == "generating"
+    # Файл workflow создан в jobs_dir для node1_watchdog.py
+    job_file = Path(jobs_dir) / "job_job-e_workflow.json"
+    assert job_file.exists()
 
 
 def test_submit_renders_workflow_with_photo_prompt(db: Database, tmp_path: Path) -> None:
-    """photo_prompt подставляется в CLIPTextEncode-ноду workflow-файла."""
+    """photo_prompt подставляется в CLIPTextEncode-ноду workflow-файла в jobs_dir."""
     db.upsert_job(
         "job-p", "ready_for_render",
         video_prompt="VP", photo_prompt="flat lay, warm tones",
     )
-    submit = _FakeSubmit()
-    summary = make_orchestrator(db, tmp_path, submit=submit).run_once()
-    assert submit.calls == ["job-p"]
+    jobs_dir = str(tmp_path / "jobs")
+    summary = make_orchestrator(db, tmp_path, jobs_dir=jobs_dir).run_once()
     assert summary["submitted"] == 1
-    workflow = json.loads(Path(submit.paths[0]).read_text(encoding="utf-8"))
+    job_file = Path(jobs_dir) / "job_job-p_workflow.json"
+    assert job_file.exists()
+    workflow = json.loads(job_file.read_text(encoding="utf-8"))
     texts = [
         node["inputs"]["text"] for node in workflow.values()
         if node["class_type"] == "CLIPTextEncode"
@@ -249,10 +259,11 @@ def test_video_prompt_ignored_and_logged(db: Database, tmp_path: Path) -> None:
         "job-v", "ready_for_render",
         video_prompt="waves hand slowly", photo_prompt="static portrait",
     )
-    submit = _FakeSubmit()
-    make_orchestrator(db, tmp_path, submit=submit).run_once()
-    workflow = Path(submit.paths[0]).read_text(encoding="utf-8")
-    assert "waves hand slowly" not in workflow
+    jobs_dir = str(tmp_path / "jobs")
+    make_orchestrator(db, tmp_path, jobs_dir=jobs_dir).run_once()
+    job_file = Path(jobs_dir) / "job_job-v_workflow.json"
+    workflow_text = job_file.read_text(encoding="utf-8")
+    assert "waves hand slowly" not in workflow_text
     assert any("video_prompt" in log["message"] for log in db.fetch_logs())
 
 
@@ -483,14 +494,15 @@ def test_ltx_video_workflow_is_patched(
     video = "A young man in a white balaclava waves at the camera"
     photo = "portrait of a young man in a white balaclava, soft studio light"
     db.upsert_job(job_id, "ready_for_render", video_prompt=video, photo_prompt=photo)
-    submit = _FakeSubmit()
+    jobs_dir = str(tmp_path / "jobs")
     with caplog.at_level("WARNING"):
         summary = make_orchestrator(
-            db, tmp_path, submit=submit, workflow_template=str(LTX_WORKFLOW_PATH)
+            db, tmp_path, jobs_dir=jobs_dir, workflow_template=str(LTX_WORKFLOW_PATH)
         ).run_once()
     assert summary["submitted"] == 1
-    assert submit.calls == [job_id]
-    workflow = json.loads(Path(submit.paths[0]).read_text(encoding="utf-8"))
+    job_file = Path(jobs_dir) / f"job_{job_id}_workflow.json"
+    assert job_file.exists()
+    workflow = json.loads(job_file.read_text(encoding="utf-8"))
     expected_first_frame = _first_frame_image_name(job_id, photo)
     assert workflow["5314"]["inputs"]["text"] == video
     assert workflow["5029"]["inputs"]["image"] == expected_first_frame
@@ -519,3 +531,42 @@ def test_metrics_failure_keeps_job_published(
     assert summary["errors"] == 1
     job = db.fetch_job("job-m")
     assert job is not None and job["status"] == "published"  # пост не ре-постится
+
+
+# --- Pull-модель (A+B гибрид) -------------------------------------------------
+
+def test_pull_model_writes_workflow_to_jobs_dir(db: Database, tmp_path: Path) -> None:
+    """ready_for_render → workflow-JSON в jobs_dir, а не через push."""
+    db.upsert_job("job-pull", "ready_for_render", photo_prompt="sunset beach")
+    jobs_dir = str(tmp_path / "pull-jobs")
+    summary = make_orchestrator(db, tmp_path, jobs_dir=jobs_dir).run_once()
+    assert summary["submitted"] == 1
+    job_file = Path(jobs_dir) / "job_job-pull_workflow.json"
+    assert job_file.exists()
+    workflow = json.loads(job_file.read_text(encoding="utf-8"))
+    # Проверяем что photo_prompt подставлен в ноду
+    assert any(
+        node["inputs"].get("text") == "sunset beach"
+        for node in workflow.values()
+        if node.get("class_type") == "CLIPTextEncode"
+    )
+
+
+def test_pull_model_creates_jobs_dir_if_missing(db: Database, tmp_path: Path) -> None:
+    """jobs_dir создаётся автоматически, если не существует."""
+    db.upsert_job("job-newdir", "ready_for_render")
+    jobs_dir = str(tmp_path / "nonexistent" / "deep" / "jobs")
+    make_orchestrator(db, tmp_path, jobs_dir=jobs_dir).run_once()
+    assert Path(jobs_dir).is_dir()
+    assert (Path(jobs_dir) / "job_job-newdir_workflow.json").exists()
+
+
+def test_pull_model_file_contains_valid_json(db: Database, tmp_path: Path) -> None:
+    """Записанный workflow — валидный JSON, который может распарсить node1_watchdog."""
+    db.upsert_job("job-json", "ready_for_render", photo_prompt="minimalist desk")
+    jobs_dir = str(tmp_path / "jobs")
+    make_orchestrator(db, tmp_path, jobs_dir=jobs_dir).run_once()
+    job_file = Path(jobs_dir) / "job_job-json_workflow.json"
+    data = json.loads(job_file.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    assert any(node.get("class_type") == "CLIPTextEncode" for node in data.values())

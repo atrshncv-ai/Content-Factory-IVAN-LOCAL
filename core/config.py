@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     comfyui_server_url: str = "http://localhost:8188"
     comfyui_workflow_template: str = "assets/comfyui_workflow_template.json"
     comfyui_workflow_dir: str = "/tmp"
+    jobs_dir: str = "data/jobs"
     content_niche: str = "ai"
 
     headroom_enabled: bool = False
