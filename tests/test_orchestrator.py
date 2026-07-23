@@ -506,15 +506,17 @@ def test_ltx_video_workflow_is_patched(
     expected_first_frame = _first_frame_image_name(job_id, photo)
     assert workflow["5314"]["inputs"]["text"] == video
     assert workflow["5029"]["inputs"]["image"] == expected_first_frame
-    assert workflow["5330"]["inputs"]["aspect_ratio"] == "custom"
+    assert workflow["5330"]["inputs"]["aspect_ratio"] == "Custom"
     assert workflow["5330"]["inputs"]["custom_ratio_width"] == 9
     assert workflow["5330"]["inputs"]["custom_ratio_height"] == 16
     assert workflow["5294"]["inputs"]["save_output"] is True
     assert workflow["5294"]["inputs"]["filename_prefix"] == f"LTX_Output_{job_id}_"
-    for node_id, node in workflow.items():
-        if node.get("class_type") == "VHS_VideoCombine":
-            assert node["inputs"]["save_output"] is True
-            assert job_id in str(node["inputs"]["filename_prefix"])
+    savers = [
+        node_id
+        for node_id, node in workflow.items()
+        if node.get("class_type") == "VHS_VideoCombine"
+    ]
+    assert savers == ["5294"]
     assert "Тест конфи.mp3" in caplog.text
 
 

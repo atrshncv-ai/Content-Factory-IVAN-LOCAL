@@ -78,6 +78,10 @@ def test_devmode_uses_uploaded_telegram_photo(tmp_path: Path) -> None:
     assert workflow["5330"]["inputs"]["aspect_ratio"] == "Custom"
     assert workflow["5294"]["inputs"]["save_output"] is True
     assert workflow["5294"]["inputs"]["filename_prefix"] == "LTX_Output_tg-42_"
+    assert sum(
+        node.get("class_type") == "VHS_VideoCombine"
+        for node in workflow.values()
+    ) == 1
 
 
 class _Telegram:
