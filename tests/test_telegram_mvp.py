@@ -75,6 +75,7 @@ def test_devmode_uses_uploaded_telegram_photo(tmp_path: Path) -> None:
 
     assert workflow["5029"]["inputs"]["image"] == "telegram_tg-42.jpg"
     assert workflow["5314"]["inputs"]["text"].startswith("Slow cinematic")
+    assert workflow["5330"]["inputs"]["aspect_ratio"] == "Custom"
     assert workflow["5294"]["inputs"]["save_output"] is True
     assert workflow["5294"]["inputs"]["filename_prefix"] == "LTX_Output_tg-42_"
 
