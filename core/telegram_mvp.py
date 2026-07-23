@@ -177,15 +177,29 @@ class MVPWorker:
 
     def run_once(self) -> dict[str, str]:
         self._work_dir.mkdir(parents=True, exist_ok=True)
-        done = self._db.fetch_jobs_by_status("done")
-        if done and str(done[0]["job_id"]).startswith("tg-"):
-            self._deliver(done[0])
-            return {"stage": "delivered", "job_id": str(done[0]["job_id"])}
+        done = next(
+            (
+                job
+                for job in self._db.fetch_jobs_by_status("done")
+                if str(job["job_id"]).startswith("tg-")
+            ),
+            None,
+        )
+        if done is not None:
+            self._deliver(done)
+            return {"stage": "delivered", "job_id": str(done["job_id"])}
 
-        generating = self._db.fetch_jobs_by_status("generating")
-        if generating and str(generating[0]["job_id"]).startswith("tg-"):
+        generating = next(
+            (
+                job
+                for job in self._db.fetch_jobs_by_status("generating")
+                if str(job["job_id"]).startswith("tg-")
+            ),
+            None,
+        )
+        if generating is not None:
             self._poll()
-            return {"stage": "polled", "job_id": str(generating[0]["job_id"])}
+            return {"stage": "polled", "job_id": str(generating["job_id"])}
 
         ready = self._db.fetch_jobs_by_status("tg_ready")
         if ready:

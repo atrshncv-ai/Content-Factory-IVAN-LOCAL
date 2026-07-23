@@ -43,6 +43,8 @@ def build_history_command(settings: Settings) -> list[str]:
 def _iter_entries(history: Any) -> list[Any]:
     """Нормализует историю: dict {prompt_id: entry} или list[entry] → list."""
     if isinstance(history, dict):
+        if isinstance(history.get("history"), (dict, list)):
+            return _iter_entries(history["history"])
         return list(history.values())
     if isinstance(history, list):
         return history
