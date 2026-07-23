@@ -114,9 +114,7 @@ def _patch_ltx_video_workflow(
         )
     resolution_node["inputs"].update(
         {
-            "aspect_ratio": "Custom",
-            "custom_ratio_width": 9,
-            "custom_ratio_height": 16,
+            "aspect_ratio": "9:16",
         }
     )
 
