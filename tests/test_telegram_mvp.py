@@ -13,6 +13,7 @@ from core.orchestrator import render_workflow
 from core.telegram_mvp import (
     MVPWorker,
     TelegramRequest,
+    validate_queue_result,
     parse_request,
     parse_video_plan,
 )
@@ -48,6 +49,14 @@ def test_parse_video_plan_accepts_fenced_json_and_rejects_empty() -> None:
     ) == ("Night city", "Slow dolly shot")
     with pytest.raises(ValueError):
         parse_video_plan('{"scenario":"","video_prompt":"x"}')
+
+
+def test_queue_result_rejects_node_validation_errors() -> None:
+    validate_queue_result('{"prompt_id":"ok","node_errors":{}}')
+    with pytest.raises(RuntimeError, match="5330"):
+        validate_queue_result(
+            '{"prompt_id":"bad","node_errors":{"5330":{"errors":[]}}}'
+        )
 
 
 @pytest.mark.parametrize(
