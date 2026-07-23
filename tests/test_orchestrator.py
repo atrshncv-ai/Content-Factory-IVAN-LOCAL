@@ -511,12 +511,13 @@ def test_ltx_video_workflow_is_patched(
     assert workflow["5330"]["inputs"]["custom_ratio_height"] == 16
     assert workflow["5294"]["inputs"]["save_output"] is True
     assert workflow["5294"]["inputs"]["filename_prefix"] == f"LTX_Output_{job_id}_"
-    savers = [
-        node_id
+    savers = {
+        node_id: node
         for node_id, node in workflow.items()
         if node.get("class_type") == "VHS_VideoCombine"
-    ]
-    assert savers == ["5294"]
+    }
+    assert len(savers) == 10
+    assert all(node["inputs"]["save_output"] is True for node in savers.values())
     assert "Тест конфи.mp3" in caplog.text
 
 

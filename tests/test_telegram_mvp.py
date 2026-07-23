@@ -90,7 +90,7 @@ def test_devmode_uses_uploaded_telegram_photo(tmp_path: Path) -> None:
     assert sum(
         node.get("class_type") == "VHS_VideoCombine"
         for node in workflow.values()
-    ) == 1
+    ) == 10
 
 
 class _Telegram:
