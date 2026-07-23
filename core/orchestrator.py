@@ -163,6 +163,7 @@ def render_workflow(
     photo_prompt: str,
     out_dir: str,
     video_prompt: str | None = None,
+    first_frame_image: str | None = None,
 ) -> Path:
     """Рендерит workflow-JSON: LTX-видео или статичное фото.
 
@@ -185,6 +186,8 @@ def render_workflow(
         _patch_ltx_video_workflow(
             workflow, job_id, video_prompt or "", photo_prompt
         )
+        if first_frame_image is not None:
+            workflow[LTX_FIRST_FRAME_NODE]["inputs"]["image"] = first_frame_image
     else:
         _render_static_workflow(workflow, photo_prompt)
     out_path = Path(out_dir) / f"job_{job_id}_workflow.json"

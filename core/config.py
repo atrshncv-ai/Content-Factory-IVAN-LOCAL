@@ -4,6 +4,7 @@
 читаются только из `.env` / переменных окружения (правило AGENTS.md:
 никакого хардкода ключей и путей).
 """
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -72,6 +73,9 @@ class Settings(BaseSettings):
     tailscale_proxy_target_port: int | None = None
     tailscale_proxy_listen_host: str | None = None
     tailscale_proxy_listen_port: int | None = None
+    telegram_bot_token: SecretStr | None = None
+    telegram_chat_id: int | None = None
+    telegram_mvp_dir: str = "data/telegram"
 
     headroom_enabled: bool = False
     headroom_api_key: str | None = None

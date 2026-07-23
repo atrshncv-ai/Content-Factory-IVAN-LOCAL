@@ -26,7 +26,6 @@ def test_config_reads_environment(monkeypatch: Any) -> None:
 
 def test_config_reuses_project_settings() -> None:
     settings = Settings(
-        _env_file=None,
         tailscale_proxy_target_host="100.64.0.20",
         tailscale_proxy_target_port=8189,
         tailscale_proxy_listen_host="127.0.0.3",
