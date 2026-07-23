@@ -7,6 +7,10 @@
 *   **Node 2 (The Brain - Control Server):** Сервер управления. Здесь работает мультиагентная система (Hermes Agent/MCP). Выполняет всю оркестрацию.
 
 ### Постановка задач и получение результатов: pull-модель + поллер
+0. Если системный VPN Node 2 (Happ) перехватывает диапазон Tailscale,
+   `scripts/tailscale_proxy.py` предоставляет локальный TCP-адрес ComfyUI и
+   передаёт соединения через `tailscale nc`. Оркестратор и CLI используют
+   локальный URL из `.env`, не завися от таблицы маршрутов macOS.
 1.  Оркестратор (Node 2) рендерит workflow-JSON из шаблона (подстановка промптов: LTX-2.3 — позитив в `5314` Text Multiline, патчинг `5029`/`5330`/`5294`) и ставит его в очередь Node 1: `cli-anything-comfyui --url <COMFYUI_SERVER_URL> queue prompt --workflow PATH` (адрес Node 1 — из `.env`, Tailscale).
 2.  **Результаты — активный поллер** (`core/poller.py`): на cron-тике Оркестратор опрашивает `cli-anything-comfyui --url <URL> --json queue history`, находит завершённые задачи по `job_id` (вшит в `filename_prefix` workflow) и переводит `media_jobs`: `generating → done` (или `error` при сбое), фиксируя имя готового файла из outputs (он же лежит в Shared Folder). Webhook-приёмник упразднён — на Node 1 работает чистый ComfyUI.
 

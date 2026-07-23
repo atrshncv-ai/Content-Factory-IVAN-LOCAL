@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     comfyui_workflow_dir: str = "/tmp"
     jobs_dir: str = "data/jobs"
     content_niche: str = "ai"
+    tailscale_proxy_target_host: str | None = None
+    tailscale_proxy_target_port: int | None = None
+    tailscale_proxy_listen_host: str | None = None
+    tailscale_proxy_listen_port: int | None = None
 
     headroom_enabled: bool = False
     headroom_api_key: str | None = None
