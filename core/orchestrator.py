@@ -88,7 +88,7 @@ def _patch_ltx_video_workflow(
       - video_prompt в ноду Text Multiline (5314)
       - first_frame в LoadImage (5029)
       - 9:16 Reels в LTXResolutionHelperNode (5330)
-      - save_output=True + filename_prefix с job_id для VHS_VideoCombine
+      - один основной VHS_VideoCombine с filename_prefix по job_id
     """
     prompt_node = workflow.get(LTX_VIDEO_PROMPT_NODE)
     if prompt_node is None or prompt_node.get("class_type") != "Text Multiline":
@@ -120,17 +120,19 @@ def _patch_ltx_video_workflow(
         }
     )
 
-    saver_count = 0
-    for node_id, node in workflow.items():
-        if node.get("class_type") == "VHS_VideoCombine":
-            node["inputs"]["save_output"] = True
-            if node_id == LTX_PRIMARY_VIDEO_COMBINE_NODE:
-                node["inputs"]["filename_prefix"] = f"LTX_Output_{job_id}_"
-            else:
-                node["inputs"]["filename_prefix"] = f"LTX_Output_{job_id}_preview_{node_id}_"
-            saver_count += 1
-    if saver_count == 0:
+    saver_ids = [
+        node_id
+        for node_id, node in workflow.items()
+        if node.get("class_type") == "VHS_VideoCombine"
+    ]
+    if LTX_PRIMARY_VIDEO_COMBINE_NODE not in saver_ids:
         raise ValueError("В LTX-шаблоне не найдена нода VHS_VideoCombine")
+    for node_id in saver_ids:
+        if node_id != LTX_PRIMARY_VIDEO_COMBINE_NODE:
+            del workflow[node_id]
+    saver = workflow[LTX_PRIMARY_VIDEO_COMBINE_NODE]
+    saver["inputs"]["save_output"] = True
+    saver["inputs"]["filename_prefix"] = f"LTX_Output_{job_id}_"
 
     for node in workflow.values():
         if node.get("class_type") == "LoadAudioUI":
