@@ -86,6 +86,14 @@ def test_find_in_history_list_format() -> None:
     assert found is not None and found["status"] == "success"
 
 
+def test_find_in_history_cli_wrapper_format() -> None:
+    """CLI оборачивает записи в ключ history и добавляет total."""
+    found = find_in_history({"history": _history(), "total": 1}, "j1")
+    assert found is not None
+    assert found["status"] == "success"
+    assert found["filename"] == "LTX_Output_j1_00001_.mp4"
+
+
 # --- poll_once -----------------------------------------------------------------
 
 def test_poll_marks_done_and_records_filename(

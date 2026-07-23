@@ -142,3 +142,26 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
 
     assert worker.run_once()["stage"] == "idle"
     assert len(telegram.sent) == 1
+
+
+def test_worker_polls_telegram_job_behind_older_generating_job(
+    tmp_path: Path,
+) -> None:
+    db = Database(str(tmp_path / "mvp.db"))
+    db.init_schema()
+    db.upsert_job("trend-old", "generating")
+    db.upsert_job("tg-42", "generating")
+    calls: list[str] = []
+    worker = MVPWorker(
+        db=db,
+        telegram=_Telegram(),
+        allowed_chat_id=941296693,
+        work_dir=tmp_path / "work",
+        plan=lambda _: ("scenario", "prompt"),
+        submit=lambda *_: None,
+        poll=lambda: calls.append("poll"),
+        download_video=lambda *_: None,
+    )
+
+    assert worker.run_once() == {"stage": "polled", "job_id": "tg-42"}
+    assert calls == ["poll"]
