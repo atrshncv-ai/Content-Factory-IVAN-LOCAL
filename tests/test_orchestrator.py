@@ -506,9 +506,7 @@ def test_ltx_video_workflow_is_patched(
     expected_first_frame = _first_frame_image_name(job_id, photo)
     assert workflow["5314"]["inputs"]["text"] == video
     assert workflow["5029"]["inputs"]["image"] == expected_first_frame
-    assert workflow["5330"]["inputs"]["aspect_ratio"] == "Custom"
-    assert workflow["5330"]["inputs"]["custom_ratio_width"] == 9
-    assert workflow["5330"]["inputs"]["custom_ratio_height"] == 16
+    assert workflow["5330"]["inputs"]["aspect_ratio"] == "9:16"
     assert workflow["5294"]["inputs"]["save_output"] is True
     assert workflow["5294"]["inputs"]["filename_prefix"] == f"LTX_Output_{job_id}_"
     savers = {
