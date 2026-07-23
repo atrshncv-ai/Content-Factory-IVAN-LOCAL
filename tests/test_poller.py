@@ -110,6 +110,22 @@ def test_poll_marks_done_and_records_filename(
     assert job["file_path"] == "LTX_Output_j1_00001_.mp4"
 
 
+def test_poll_waits_when_success_has_no_video_output(
+    db: Database, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db.upsert_job("j1", "generating")
+    history = _history()
+    history["prompt-id-1"]["prompt"] = {"filename_prefix": "LTX_Output_j1_"}
+    history["prompt-id-1"]["outputs"] = {}
+    _mock_cli(monkeypatch, {"history": history, "total": 1})
+
+    summary = poll_once(db, SETTINGS)
+
+    assert summary == {"checked": 1, "done": 0, "errors": 0}
+    job = db.fetch_job("j1")
+    assert job is not None and job["status"] == "generating"
+
+
 def test_poll_keeps_generating_when_not_in_history(
     db: Database, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
