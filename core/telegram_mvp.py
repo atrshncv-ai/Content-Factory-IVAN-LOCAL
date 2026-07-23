@@ -86,6 +86,13 @@ def parse_video_plan(raw: str) -> tuple[str, str]:
     return scenario, prompt
 
 
+def validate_queue_result(raw: str) -> None:
+    result = json.loads(raw)
+    errors = result.get("node_errors")
+    if errors:
+        raise RuntimeError(f"ComfyUI rejected workflow nodes: {errors}")
+
+
 def _multipart(
     fields: dict[str, str], field_name: str, path: Path
 ) -> tuple[bytes, str]:
@@ -332,7 +339,7 @@ def build_worker(settings: Settings, db: Database) -> MVPWorker:
             video_prompt=prompt,
             first_frame_image=input_name,
         )
-        subprocess.run(
+        result = subprocess.run(
             [
                 settings.comfyui_command,
                 "--url",
@@ -348,6 +355,7 @@ def build_worker(settings: Settings, db: Database) -> MVPWorker:
             text=True,
             timeout=180,
         )
+        validate_queue_result(result.stdout)
 
     return MVPWorker(
         db=db,
