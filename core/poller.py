@@ -122,6 +122,8 @@ def poll_once(db: Database, settings: Settings) -> dict[str, int]:
             continue  # задача ещё в очереди/в работе на Node 1
         if found["status"] == "success":
             filename = found["filename"] or ""
+            if not filename:
+                continue
             db.upsert_job(job_id, "done", file_path=filename)
             db.log(
                 "INFO", "poller",
