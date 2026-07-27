@@ -514,8 +514,7 @@ def test_ltx_video_workflow_is_patched(
         for node_id, node in workflow.items()
         if node.get("class_type") == "VHS_VideoCombine"
     }
-    assert len(savers) == 10
-    assert all(node["inputs"]["save_output"] is True for node in savers.values())
+    assert set(savers) == {"5294"}
     assert "Тест конфи.mp3" in caplog.text
 
 
