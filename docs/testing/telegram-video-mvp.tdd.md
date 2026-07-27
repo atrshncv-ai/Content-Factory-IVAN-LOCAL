@@ -21,3 +21,12 @@ it into an LTX video on Node 1 and return the MP4 with total elapsed time.
 
 Send a real Telegram photo with a caption, run one-shot ticks until completion,
 validate the MP4 container, receive it in Telegram, and report wall-clock time.
+
+## 2026-07-27 evidence
+
+- RED: both workflow tests found 10 `VHS_VideoCombine` output targets.
+- GREEN: only primary GGUF branch `5294` remains in the submitted API graph.
+- Validation: `110 passed`; `mypy` reports no issues in 15 source files.
+- Real E2E: 1-second/512 px diagnostic completed in 110 seconds and its MP4
+  was delivered to the configured Telegram chat.
+- Coverage was not collected because `pytest-cov` is not installed.
