@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,22 @@ from core.orchestrator import render_workflow
 from core.telegram_mvp import (
     MVPWorker,
     TelegramRequest,
+    assert_workflow_checksum,
+    validate_photo,
     validate_queue_result,
     parse_request,
     parse_video_plan,
 )
+
+
+def _png(width: int, height: int) -> bytes:
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + struct.pack(">II", width, height)
+        + b"\x08\x02\x00\x00\x00"
+    )
 
 
 def _update(chat_id: int = 941296693) -> dict[str, object]:
@@ -57,6 +70,31 @@ def test_queue_result_rejects_node_validation_errors() -> None:
         validate_queue_result(
             '{"prompt_id":"bad","node_errors":{"5330":{"errors":[]}}}'
         )
+
+
+def test_photo_validation_accepts_supported_large_image_and_rejects_bad_input(
+    tmp_path: Path,
+) -> None:
+    photo = tmp_path / "portrait.png"
+    photo.write_bytes(_png(720, 1280))
+    assert validate_photo(photo) == ("png", 720, 1280)
+
+    photo.write_bytes(_png(719, 1280))
+    with pytest.raises(ValueError, match="720"):
+        validate_photo(photo)
+    photo.write_bytes(b"not an image")
+    with pytest.raises(ValueError, match="JPEG, PNG или WebP"):
+        validate_photo(photo)
+
+
+def test_workflow_checksum_must_match_approved_value(tmp_path: Path) -> None:
+    workflow = tmp_path / "workflow.json"
+    workflow.write_text('{"1":{"class_type":"LoadImage"}}', encoding="utf-8")
+    checksum = assert_workflow_checksum(workflow, None)
+    assert len(checksum) == 64
+    assert assert_workflow_checksum(workflow, checksum) == checksum
+    with pytest.raises(ValueError, match="контрольная сумма"):
+        assert_workflow_checksum(workflow, "0" * 64)
 
 
 @pytest.mark.parametrize(
@@ -102,7 +140,7 @@ class _Telegram:
 
     def download_photo(self, file_id: str, destination: Path) -> None:
         assert file_id == "large"
-        destination.write_bytes(b"\xff\xd8\xff\xe0photo")
+        destination.write_bytes(_png(720, 1280))
 
     def send_video(self, chat_id: int, video: Path, caption: str) -> None:
         self.sent.append((chat_id, video, caption))
@@ -114,6 +152,7 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
     db = Database(str(tmp_path / "mvp.db"))
     db.init_schema()
     telegram = _Telegram()
+    calls: list[tuple[str, str]] = []
 
     def plan(topic: str) -> tuple[str, str]:
         return f"Сценарий: {topic}", "Cinematic slow camera movement"
@@ -122,6 +161,7 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
         assert job_id == "tg-42"
         assert image.exists()
         assert prompt.startswith("Cinematic")
+        calls.append(("submit", job_id))
 
     def poll() -> None:
         db.upsert_job(
@@ -141,21 +181,54 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
         submit=submit,
         poll=poll,
         download_video=download_video,
+        health_check=lambda: calls.append(("health", "ok")),
+        store_on_node1=lambda job_id, source, result: calls.append(
+            ("store", f"{job_id}:{source.name}:{result.name}")
+        ),
+        delivery_chat_ids=frozenset({941296693, 202}),
     )
 
     assert worker.run_once()["stage"] == "received"
+    assert db.fetch_job("tg-42")["attempts"] == 0
     assert worker.run_once()["stage"] == "planned"
     assert worker.run_once()["stage"] == "submitted"
     assert worker.run_once()["stage"] == "polled"
     assert worker.run_once()["stage"] == "delivered"
     job = db.fetch_job("tg-42")
     assert job is not None and job["status"] == "delivered"
-    assert len(telegram.sent) == 1
+    assert [item[0] for item in telegram.sent] == [202, 941296693]
     assert "Полный цикл:" in telegram.sent[0][2]
+    assert calls[0] == ("health", "ok")
+    assert calls[1] == ("submit", "tg-42")
+    assert calls[2][0] == "store"
     assert not list((tmp_path / "work").glob("*"))
 
     assert worker.run_once()["stage"] == "idle"
-    assert len(telegram.sent) == 1
+    assert len(telegram.sent) == 2
+
+
+def test_invalid_photo_does_not_create_job_or_spend_attempt(
+    tmp_path: Path,
+) -> None:
+    db = Database(str(tmp_path / "mvp.db"))
+    db.init_schema()
+    telegram = _Telegram()
+    telegram.download_photo = lambda _file_id, destination: destination.write_bytes(
+        _png(640, 1280)
+    )
+    worker = MVPWorker(
+        db=db,
+        telegram=telegram,
+        allowed_chat_id=941296693,
+        work_dir=tmp_path / "work",
+        plan=lambda _: ("scenario", "prompt"),
+        submit=lambda *_: None,
+        poll=lambda: None,
+        download_video=lambda *_: None,
+    )
+
+    assert worker.run_once()["stage"] == "invalid_photo"
+    assert db.fetch_job("tg-42") is None
 
 
 def test_worker_polls_telegram_job_behind_older_generating_job(

@@ -276,5 +276,6 @@ def test_plan_requires_profile_but_new_video_remains_available(
         "Сначала заполните обязательный профиль бренда через /setup."
     )
     assert shell.handle(_message(2, 101, "/new_video")) == (
-        "Сценарий /new_video пока не настроен."
+        "Пришлите JPEG, PNG или WebP с идеей в подписи. "
+        "Минимальная сторона — 720 px."
     )
