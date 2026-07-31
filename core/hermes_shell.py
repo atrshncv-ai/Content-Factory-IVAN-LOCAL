@@ -24,6 +24,7 @@ COMMANDS = {
     "/status": "Показать состояние системы",
     "/cancel": "Отменить задачу",
 }
+Keyboard = list[list[dict[str, str]]]
 
 PROFILE_FIELDS = (
     ("brand", "бренд", True),
@@ -61,6 +62,7 @@ class ShellConfig(BaseSettings):
 
     telegram_admin_id_1: int | None = None
     telegram_admin_id_2: int | None = None
+    telegram_bot_token: SecretStr | None = None
     opencode_zen_api_key_1: SecretStr | None = None
     opencode_zen_api_key_2: SecretStr | None = None
     hermes_state_path: Path | None = None
@@ -189,6 +191,17 @@ class HermesShell:
             return f"Сценарий {command} пока не настроен."
         setup = state.get("setup")
         if not isinstance(setup, dict):
+            revision = state.get("task_revision")
+            if isinstance(revision, dict) and self._task_queue is not None:
+                job_id = str(revision["job_id"])
+                self._task_queue.result_action(
+                    job_id,
+                    "revise",
+                    datetime.now(timezone.utc),
+                    feedback=text,
+                )
+                state.pop("task_revision", None)
+                return f"{job_id}: доработка принята и поставлена в очередь."
             if self._weekly_plan is not None:
                 return self._weekly_plan.message(text.strip(), state)
             return None
@@ -237,6 +250,38 @@ class HermesShell:
                 parts[2], confirmed=True, now=datetime.now(timezone.utc)
             )
             return f"{parts[2]}: рендер отменён."
+        if (
+            self._task_queue is not None
+            and len(parts) == 4
+            and parts[:2] == ["task", "result"]
+        ):
+            action, job_id = parts[2:]
+            if action == "revise":
+                state["task_revision"] = {"job_id": job_id}
+                return f"{job_id}: опишите требуемую доработку."
+            self._task_queue.result_action(
+                job_id, action, datetime.now(timezone.utc)
+            )
+            labels = {
+                "accept": "принято",
+                "regenerate": "поставлено на перегенерацию",
+                "cancel": "отменено",
+            }
+            return f"{job_id}: {labels.get(action, action)}."
+        if (
+            self._task_queue is not None
+            and len(parts) == 4
+            and parts[:2] == ["task", "failure"]
+        ):
+            action, job_id = parts[2:]
+            self._task_queue.failure_action(
+                job_id, action, datetime.now(timezone.utc)
+            )
+            return (
+                f"{job_id}: повтор поставлен в очередь."
+                if action == "retry"
+                else f"{job_id}: отменено."
+            )
         if len(parts) != 4 or parts[:2] != ["setup", "edit"]:
             return "Этот сценарий пока не настроен."
         field = parts[2]
@@ -405,6 +450,117 @@ class HermesShell:
             encoding="utf-8",
         )
         temporary.replace(self._state_path)
+
+    def keyboard(self, response: str) -> Keyboard:
+        """Возвращает Telegram inline-кнопки только для текущего состояния."""
+        state = self._load_state()
+        profile = state.get("brand_profile")
+        if response.startswith("Актуальный профиль") and isinstance(profile, dict):
+            revision = int(profile["revision"])
+            buttons = [
+                {
+                    "text": PROFILE_LABELS[field],
+                    "callback_data": f"setup:edit:{field}:{revision}",
+                }
+                for field, _label, _required in PROFILE_FIELDS
+            ]
+            return [buttons[index : index + 2] for index in range(0, len(buttons), 2)]
+
+        plan = state.get("weekly_plan")
+        if isinstance(plan, dict):
+            revision = int(plan.get("revision", -1))
+            if plan.get("phase") == "review":
+                return [[
+                    {"text": "Принять", "callback_data": f"plan:accept:{revision}"},
+                    {"text": "Заменить", "callback_data": f"plan:replace:{revision}"},
+                    {"text": "Изменить", "callback_data": f"plan:edit:{revision}"},
+                ]]
+            if plan.get("phase") == "final":
+                return [
+                    [{
+                        "text": "Утвердить — автоматически",
+                        "callback_data": f"plan:approve:auto:{revision}",
+                    }],
+                    [{
+                        "text": "Утвердить — с проверкой",
+                        "callback_data": f"plan:approve:manual:{revision}",
+                    }],
+                ]
+        if response.startswith("Подтвердите фото"):
+            return [[{
+                "text": "Использовать это фото",
+                "callback_data": "plan:photo_confirm",
+            }]]
+        if "уже рендерится" in response:
+            job_id = response.split(maxsplit=1)[0]
+            return [[{
+                "text": "Подтвердить отмену",
+                "callback_data": f"task:confirm_cancel:{job_id}",
+            }]]
+        if self._task_queue is not None:
+            if response.startswith("Выберите задачу для отмены:"):
+                rows: Keyboard = []
+                for line in response.splitlines()[1:]:
+                    job_id = line.split(":", maxsplit=1)[0]
+                    if job_id and job_id != "Очередь пуста.":
+                        rows.append([{
+                            "text": f"Отменить {job_id}",
+                            "callback_data": f"task:cancel:{job_id}",
+                        }])
+                return rows
+            for line in response.splitlines():
+                job_id, separator, rest = line.partition(":")
+                if separator:
+                    status = rest.strip().split(",", maxsplit=1)[0]
+                    task_buttons = self.keyboard_for_task(job_id, status)
+                    if task_buttons:
+                        return task_buttons
+        return []
+
+    @staticmethod
+    def keyboard_for_task(job_id: str, status: str) -> Keyboard:
+        if status == "awaiting_approval":
+            return [[
+                {
+                    "text": "Утвердить и запустить",
+                    "callback_data": f"task:approve:{job_id}",
+                },
+                {"text": "Отменить", "callback_data": f"task:cancel:{job_id}"},
+            ]]
+        if status == "generating":
+            return [[{
+                "text": "Отменить",
+                "callback_data": f"task:cancel:{job_id}",
+            }]]
+        if status == "result_ready":
+            return [
+                [
+                    {
+                        "text": "Принять",
+                        "callback_data": f"task:result:accept:{job_id}",
+                    },
+                    {
+                        "text": "Перегенерировать",
+                        "callback_data": f"task:result:regenerate:{job_id}",
+                    },
+                ],
+                [
+                    {
+                        "text": "Доработать",
+                        "callback_data": f"task:result:revise:{job_id}",
+                    },
+                    {
+                        "text": "Отменить",
+                        "callback_data": f"task:result:cancel:{job_id}",
+                    },
+                ],
+            ]
+        if status == "needs_action":
+            return [[
+                {"text": "Повторить", "callback_data": f"task:failure:retry:{job_id}"},
+                {"text": "Отменить", "callback_data": f"task:failure:cancel:{job_id}"},
+            ]]
+        return []
 
 
 def main() -> int:

@@ -9,6 +9,25 @@ uv run python -m scripts.acceptance_harness preflight
 uv run python -m scripts.job_server
 ```
 
+После заполнения `TELEGRAM_BOT_TOKEN`, двух `TELEGRAM_ADMIN_ID_*` и
+`HERMES_STATE_PATH` один раз зарегистрировать меню:
+
+```sh
+uv run python -m core.telegram_gateway register-menu
+```
+
+Обработка Telegram выполняется одноразовым тиком, который принимает не более
+одного update, сохраняет offset и завершается:
+
+```sh
+uv run python -m core.telegram_gateway tick
+```
+
+Именно команду `tick` следует вызывать планировщиком раз в минуту. Она
+обрабатывает сообщения и callback-кнопки, подтверждает callback query и
+отправляет ответ с актуальной inline-клавиатурой. Вечный polling-процесс не
+используется.
+
 Для one-shot cron указать `HERMES_PROJECT_DIR` и `HERMES_PYTHON`, заменить
 маркеры `__PROJECT_DIR__`, `__PYTHON__`, `__LOG_DIR__` в
 `ops/macos/com.hermes.content-factory.plist.example`, скопировать результат в
@@ -20,9 +39,8 @@ launchctl kickstart -k gui/$(id -u)/com.hermes.content-factory
 ```
 
 Шаблон запускает `python -m core.orchestrator` раз в 60 секунд; процесс делает
-один тик и завершается. Hermes Gateway/Telegram запускаются штатным Hermes
-launcher согласно локальной установке; их executable не подменяется этим
-репозиторием.
+один тик и завершается. Telegram gateway запускается указанной выше
+одноразовой командой.
 
 ## Windows Node 1
 

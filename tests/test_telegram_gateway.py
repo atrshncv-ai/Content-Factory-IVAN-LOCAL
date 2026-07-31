@@ -34,6 +34,10 @@ class FakeTelegram:
         self.offsets: list[int] = []
         self.messages: list[tuple[int, str, list[list[dict[str, str]]] | None]] = []
         self.answers: list[str] = []
+        self.commands: list[dict[str, str]] = []
+
+    def set_commands(self, commands: list[dict[str, str]]) -> None:
+        self.commands = commands
 
     def updates(self, offset: int = 0) -> list[dict[str, Any]]:
         self.offsets.append(offset)
@@ -229,9 +233,11 @@ def test_callback_is_acknowledged_and_duplicate_or_unknown_user_is_silent(
     assert not state_path.exists()
 
     offset_path.write_text("4\n")
-    allowed = dict(callback)
+    callback_query = callback["callback_query"]
+    assert isinstance(callback_query, dict)
+    allowed: dict[str, Any] = dict(callback)
     allowed["callback_query"] = {
-        **callback["callback_query"],
+        **callback_query,
         "from": {"id": 101},
         "message": {"chat": {"id": 101}},
     }

@@ -62,9 +62,9 @@ $ uv run python -m trace --count --summary --coverdir /tmp/hermes-shell-cover \
 The generated annotated `core.hermes_shell.cover` shows all ticket paths used by
 the harness tests; deliberately defensive malformed-event returns and the
 `__main__` import guard remain outside the acceptance flow. Branch coverage is
-not available from stdlib `trace`. Real Telegram transport and Hermes installation
-are intentionally deferred; this ticket supplies their tested workspace/harness
-contract without downloading either system.
+not available from stdlib `trace`. Hermes installation and a live-token call
+remain part of manual acceptance; Telegram transport itself is covered at a
+deterministic fake HTTP boundary.
 
 Final regression:
 
@@ -74,3 +74,28 @@ $ uv run pytest -q
 $ uv run mypy
 Success: no issues found in 28 source files
 ```
+
+## Real gateway regression: RED and GREEN
+
+The manual bot check proved that the original shell never called Telegram API.
+The regression test was committed before implementation:
+
+```text
+$ uv run pytest -q tests/test_telegram_gateway.py
+ModuleNotFoundError: No module named 'core.telegram_gateway'
+```
+
+RED checkpoint: `82bee57da27c668afc3da373e20d9f4681848178`.
+
+GREEN verifies the exact `setMyCommands` payload, one update per clean run,
+inline keyboards, callback acknowledgement, allowlist, idempotency and
+secret-safe observable output:
+
+```text
+$ uv run pytest -q
+165 passed
+$ uv run mypy
+Success: no issues found in 39 source files
+```
+
+No real Telegram token was called by the automated suite.

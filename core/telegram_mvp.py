@@ -192,12 +192,35 @@ class TelegramHTTP:
             raise RuntimeError(f"Telegram {method} failed")
         return payload["result"]
 
-    def updates(self) -> list[dict[str, Any]]:
+    def updates(self, offset: int = 0) -> list[dict[str, Any]]:
         result = self._call(
             "getUpdates",
-            {"timeout": "0", "allowed_updates": json.dumps(["message"])},
+            {
+                "timeout": "0",
+                "offset": str(offset),
+                "allowed_updates": json.dumps(["message", "callback_query"]),
+            },
         )
         return [item for item in result if isinstance(item, dict)]
+
+    def set_commands(self, commands: list[dict[str, str]]) -> None:
+        self._call("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
+
+    def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        keyboard: list[list[dict[str, str]]] | None = None,
+    ) -> None:
+        query = {"chat_id": str(chat_id), "text": text}
+        if keyboard:
+            query["reply_markup"] = json.dumps(
+                {"inline_keyboard": keyboard}, ensure_ascii=False
+            )
+        self._call("sendMessage", query)
+
+    def answer_callback(self, callback_id: str) -> None:
+        self._call("answerCallbackQuery", {"callback_query_id": callback_id})
 
     def download_photo(self, file_id: str, destination: Path) -> None:
         info = self._call("getFile", {"file_id": file_id})
