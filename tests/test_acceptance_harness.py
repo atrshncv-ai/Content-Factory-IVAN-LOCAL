@@ -19,9 +19,13 @@ def test_three_level_preflight_checks_tailnet_tcp_and_workflow(tmp_path: Path) -
     )
     calls: list[tuple[str, int]] = []
 
+    def tcp(host: str, port: int) -> bool:
+        calls.append((host, port))
+        return True
+
     report = Preflight(
         tailnet=lambda: True,
-        tcp=lambda host, port: calls.append((host, port)) or True,
+        tcp=tcp,
         comfy=lambda _url: {
             "system_stats": True,
             "node_types": {"LoadImage", "SaveVideo"},

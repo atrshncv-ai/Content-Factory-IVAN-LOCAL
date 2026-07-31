@@ -97,6 +97,12 @@
       "phase": "Hermes Content Factory MVP",
       "description": "Круглосуточная эксплуатация и сохранность",
       "passes": true
+    },
+    {
+      "id": "MVP-08",
+      "phase": "Hermes Content Factory MVP",
+      "description": "Тестовый контур Mac Node 2 + Windows Node 1 и реальная приёмка",
+      "passes": false
     }
   ]
 }
