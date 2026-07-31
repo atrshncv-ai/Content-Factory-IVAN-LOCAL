@@ -34,6 +34,19 @@ def _callback(callback_id: str, user_id: int) -> dict[str, object]:
     }
 
 
+def _setup_callback(
+    callback_id: str,
+    user_id: int,
+    field: str,
+    revision: int,
+) -> dict[str, object]:
+    update = _callback(callback_id, user_id)
+    callback = update["callback_query"]
+    assert isinstance(callback, dict)
+    callback["data"] = f"setup:edit:{field}:{revision}"
+    return update
+
+
 def test_config_requires_two_distinct_admins_and_two_named_key_slots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -140,3 +153,126 @@ def test_cli_processes_one_event_and_exits(
 
     assert main() == 0
     assert capsys.readouterr().out.startswith("Hermes работает.")
+
+
+def test_setup_collects_and_persists_complete_brand_profile(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    knowledge_path = tmp_path / "knowledge"
+    shell = HermesShell(
+        frozenset({101, 202}),
+        state_path,
+        knowledge_path=knowledge_path,
+    )
+    answers = [
+        "Иван",
+        "Экспертный контент",
+        "Предприниматели 30–45",
+        "Курс и консультации",
+        "Россия",
+        "Дружелюбный эксперт",
+        "Рост заявок",
+        "Политика",
+        "Europe/Samara",
+    ]
+
+    assert shell.handle(_message(1, 101, "/setup")) == (
+        "Настройка профиля. Введите название бренда."
+    )
+    for update_id, answer in enumerate(answers, start=2):
+        response = shell.handle(_message(update_id, 101, answer))
+
+    assert response == "Профиль бренда сохранён (ревизия 1)."
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["brand_profile"] == {
+        "brand": "Иван",
+        "niche": "Экспертный контент",
+        "audience": "Предприниматели 30–45",
+        "products": "Курс и консультации",
+        "geography": "Россия",
+        "tone": "Дружелюбный эксперт",
+        "goals": "Рост заявок",
+        "excluded_topics": "Политика",
+        "timezone": "Europe/Samara",
+        "revision": 1,
+        "audit": {"updated_by": 101},
+    }
+    assert knowledge_path.is_dir()
+    assert list(knowledge_path.iterdir()) == []
+
+
+def test_setup_allows_optional_skips_but_reasks_required_fields(
+    tmp_path: Path,
+) -> None:
+    shell = HermesShell(frozenset({101, 202}), tmp_path / "state.json")
+
+    shell.handle(_message(1, 101, "/setup"))
+    assert shell.handle(_message(2, 101, "/skip")) == (
+        "Поле «бренд» обязательно. Введите значение."
+    )
+    answers = [
+        "Бренд",
+        "Ниша",
+        "Аудитория",
+        "/skip",
+        "/skip",
+        "Тон",
+        "/skip",
+        "/skip",
+        "Europe/Moscow",
+    ]
+    for update_id, answer in enumerate(answers, start=3):
+        response = shell.handle(_message(update_id, 101, answer))
+
+    assert response == "Профиль бренда сохранён (ревизия 1)."
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["brand_profile"]["products"] == ""
+    assert state["brand_profile"]["geography"] == ""
+    assert state["brand_profile"]["goals"] == ""
+    assert state["brand_profile"]["excluded_topics"] == ""
+
+
+def test_repeat_setup_shows_profile_and_revision_protects_edits(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    shell = HermesShell(frozenset({101, 202}), state_path)
+    shell.handle(_message(1, 101, "/setup"))
+    for update_id, answer in enumerate(
+        ["Бренд", "Ниша", "Аудитория", "-", "-", "Тон", "-", "-", "UTC"],
+        start=2,
+    ):
+        shell.handle(_message(update_id, 101, answer))
+
+    summary = shell.handle(_message(20, 202, "/setup"))
+    assert summary is not None
+    assert "Бренд: Бренд" in summary
+    assert "Ревизия: 1" in summary
+    assert shell.handle(_setup_callback("old", 202, "tone", 0)) == (
+        "Профиль уже изменён. Откройте /setup заново."
+    )
+    assert shell.handle(_setup_callback("current", 202, "tone", 1)) == (
+        "Введите новое значение поля «тон»."
+    )
+    assert shell.handle(_message(21, 202, "Строгий эксперт")) == (
+        "Профиль бренда сохранён (ревизия 2)."
+    )
+
+    profile = json.loads(state_path.read_text(encoding="utf-8"))["brand_profile"]
+    assert profile["tone"] == "Строгий эксперт"
+    assert profile["revision"] == 2
+    assert profile["audit"] == {"updated_by": 202}
+
+
+def test_plan_requires_profile_but_new_video_remains_available(
+    tmp_path: Path,
+) -> None:
+    shell = HermesShell(frozenset({101, 202}), tmp_path / "state.json")
+
+    assert shell.handle(_message(1, 101, "/plan")) == (
+        "Сначала заполните обязательный профиль бренда через /setup."
+    )
+    assert shell.handle(_message(2, 101, "/new_video")) == (
+        "Сценарий /new_video пока не настроен."
+    )
