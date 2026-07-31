@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from core.task_control import TaskQueue
 
 COMMANDS = {
     "/setup": "Настроить профиль бренда",
@@ -92,11 +96,13 @@ class HermesShell:
         state_path: Path,
         active_key_number: int = 0,
         knowledge_path: Path | None = None,
+        task_queue: TaskQueue | None = None,
     ) -> None:
         self._admin_ids = admin_ids
         self._state_path = state_path
         self._active_key_number = active_key_number
         self._knowledge_path = knowledge_path
+        self._task_queue = task_queue
 
     def handle(self, update: dict[str, Any]) -> str | None:
         event = self._event(update)
@@ -137,15 +143,23 @@ class HermesShell:
         if command == "/plan" and not self._profile_complete(state):
             return "Сначала заполните обязательный профиль бренда через /setup."
         if command == "/status":
-            return (
+            response = (
                 "Hermes работает.\n"
                 f"Активный OpenCode Zen ключ: №{self._active_key_number}.\n"
                 "Telegram-оболочка: готова."
             )
+            if self._task_queue is not None:
+                response += f"\nОчередь:\n{self._task_queue.status(datetime.now(timezone.utc))}"
+            return response
         if command == "/new_video":
             return (
                 "Пришлите JPEG, PNG или WebP с идеей в подписи. "
                 "Минимальная сторона — 720 px."
+            )
+        if command == "/cancel" and self._task_queue is not None:
+            return (
+                "Выберите задачу для отмены:\n"
+                f"{self._task_queue.status(datetime.now(timezone.utc))}"
             )
         if command.startswith("/") and command in COMMANDS:
             return f"Сценарий {command} пока не настроен."
@@ -161,6 +175,33 @@ class HermesShell:
         state: dict[str, Any],
     ) -> str:
         parts = data.split(":")
+        if (
+            self._task_queue is not None
+            and len(parts) == 3
+            and parts[:2] == ["task", "approve"]
+        ):
+            self._task_queue.approve(parts[2], datetime.now(timezone.utc))
+            return f"{parts[2]}: утверждено и поставлено в очередь."
+        if (
+            self._task_queue is not None
+            and len(parts) == 3
+            and parts[:2] == ["task", "cancel"]
+        ):
+            result = self._task_queue.cancel(
+                parts[2], confirmed=False, now=datetime.now(timezone.utc)
+            )
+            if result == "confirm":
+                return f"{parts[2]} уже рендерится. Подтвердите точечную отмену."
+            return f"{parts[2]}: отменено."
+        if (
+            self._task_queue is not None
+            and len(parts) == 3
+            and parts[:2] == ["task", "confirm_cancel"]
+        ):
+            self._task_queue.cancel(
+                parts[2], confirmed=True, now=datetime.now(timezone.utc)
+            )
+            return f"{parts[2]}: рендер отменён."
         if len(parts) != 4 or parts[:2] != ["setup", "edit"]:
             return "Этот сценарий пока не настроен."
         field = parts[2]

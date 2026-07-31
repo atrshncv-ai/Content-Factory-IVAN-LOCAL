@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS media_jobs (
     photo_prompt TEXT,
     trend_title  TEXT,
     trend_url    TEXT,
+    approval_mode TEXT NOT NULL DEFAULT 'auto',
+    render_started_at TEXT,
+    notice_at    TEXT,
+    node_notice_at TEXT,
+    node_notice_count INTEGER NOT NULL DEFAULT 0,
+    user_rerenders INTEGER NOT NULL DEFAULT 0,
+    seed         INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -58,6 +65,13 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("media_jobs", "trend_url", "TEXT"),
     ("media_jobs", "source_path", "TEXT"),
     ("media_jobs", "attempts", "INTEGER NOT NULL DEFAULT 0"),
+    ("media_jobs", "approval_mode", "TEXT NOT NULL DEFAULT 'auto'"),
+    ("media_jobs", "render_started_at", "TEXT"),
+    ("media_jobs", "notice_at", "TEXT"),
+    ("media_jobs", "node_notice_at", "TEXT"),
+    ("media_jobs", "node_notice_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("media_jobs", "user_rerenders", "INTEGER NOT NULL DEFAULT 0"),
+    ("media_jobs", "seed", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -181,6 +195,28 @@ class Database:
                 "SELECT * FROM media_jobs WHERE job_id = ?", (job_id,)
             )
             return cur.fetchone()
+
+    def fetch_jobs(self) -> list[sqlite3.Row]:
+        """Все задания в устойчивом порядке создания."""
+        with self._lock:
+            return list(self._conn.execute("SELECT * FROM media_jobs ORDER BY id"))
+
+    def update_job_control(self, job_id: str, **values: object) -> None:
+        """Обновляет только разрешённые lifecycle-поля."""
+        allowed = {
+            "status", "attempts", "approval_mode", "render_started_at",
+            "notice_at", "node_notice_at", "user_rerenders", "seed",
+            "node_notice_count", "concept", "video_prompt",
+        }
+        if not values or not set(values) <= allowed:
+            raise ValueError("Unsupported media job control field")
+        assignments = ", ".join(f"{key} = ?" for key in values)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE media_jobs SET {assignments}, updated_at = datetime('now') "
+                "WHERE job_id = ?",
+                (*values.values(), job_id),
+            )
 
     # --- Метрики ----------------------------------------------------------------
 

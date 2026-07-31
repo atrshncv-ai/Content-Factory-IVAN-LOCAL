@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from core.db import Database
+from core.hermes_shell import HermesShell
 from core.task_control import NodeUnavailable, TaskQueue
 
 NOW = datetime(2026, 7, 31, 10, 0, tzinfo=timezone.utc)
@@ -137,3 +138,32 @@ def test_result_actions_keep_inputs_and_limit_user_rerenders(
 
     queue.result_action("tg-1", "accept", NOW)
     assert queue.get("tg-1")["status"] == "accepted"
+
+
+def test_shell_exposes_status_cancel_and_current_task_actions(
+    queue: TaskQueue, tmp_path: Path
+) -> None:
+    queue.create("tg-1", "manual", NOW)
+    queue.plan("tg-1", "scene", "prompt", NOW)
+    shell = HermesShell(
+        frozenset({101, 202}), tmp_path / "state.json", task_queue=queue
+    )
+
+    status = shell.handle(
+        {"update_id": 1, "message": {"from": {"id": 101}, "text": "/status"}}
+    )
+    assert status is not None and "tg-1: awaiting_approval" in status
+    cancel = shell.handle(
+        {"update_id": 2, "message": {"from": {"id": 101}, "text": "/cancel"}}
+    )
+    assert cancel is not None and "tg-1" in cancel
+    approved = shell.handle(
+        {
+            "callback_query": {
+                "id": "approve-1",
+                "from": {"id": 202},
+                "data": "task:approve:tg-1",
+            }
+        }
+    )
+    assert approved == "tg-1: утверждено и поставлено в очередь."
