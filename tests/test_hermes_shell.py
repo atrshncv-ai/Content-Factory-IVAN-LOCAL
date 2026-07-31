@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import sys
+from io import StringIO
 from pathlib import Path
 
 import pytest
 
-from core.hermes_shell import COMMANDS, HermesShell, ShellConfig
+from core.hermes_shell import COMMANDS, HermesShell, ShellConfig, main
 
 
 def _message(update_id: int, user_id: int, command: str) -> dict[str, object]:
@@ -37,8 +39,8 @@ def test_config_requires_two_distinct_admins_and_two_named_key_slots(
 ) -> None:
     monkeypatch.setenv("TELEGRAM_ADMIN_ID_1", "101")
     monkeypatch.setenv("TELEGRAM_ADMIN_ID_2", "202")
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY_1", "first-secret")
-    monkeypatch.setenv("OPENCODE_ZEN_API_KEY_2", "second-secret")
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY_1", "test-value-1")
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY_2", "test-value-2")
 
     config = ShellConfig()
 
@@ -54,6 +56,19 @@ def test_config_rejects_duplicate_admins(monkeypatch: pytest.MonkeyPatch) -> Non
 
     with pytest.raises(ValueError, match="distinct"):
         ShellConfig()
+
+
+def test_config_requires_both_admins_and_selects_available_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(ValueError, match="Two Telegram"):
+        ShellConfig()
+
+    monkeypatch.setenv("TELEGRAM_ADMIN_ID_1", "101")
+    monkeypatch.setenv("TELEGRAM_ADMIN_ID_2", "202")
+    assert ShellConfig().active_key_number == 0
+    monkeypatch.setenv("OPENCODE_ZEN_API_KEY_2", "test-value-2")
+    assert ShellConfig().active_key_number == 2
 
 
 def test_only_five_russian_commands_are_registered() -> None:
@@ -90,7 +105,7 @@ def test_status_is_safe_and_other_commands_are_pending(tmp_path: Path) -> None:
     )
     assert pending == "Сценарий /plan пока не настроен."
     serialized = json.dumps({"status": status}, ensure_ascii=False).lower()
-    for forbidden in ("token", ".env", "secret", "prompt", "first-secret"):
+    for forbidden in ("token", ".env", "secret", "prompt", "test-value-1"):
         assert forbidden not in serialized
 
 
@@ -111,3 +126,17 @@ def test_update_and_callback_are_idempotent_across_clean_runs(
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["processed_events"] == ["callback:cb-1", "update:7"]
+
+
+def test_cli_processes_one_event_and_exits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TELEGRAM_ADMIN_ID_1", "101")
+    monkeypatch.setenv("TELEGRAM_ADMIN_ID_2", "202")
+    monkeypatch.setenv("HERMES_STATE_PATH", str(tmp_path / "state.json"))
+    monkeypatch.setattr(sys, "stdin", StringIO(json.dumps(_message(1, 101, "/status"))))
+
+    assert main() == 0
+    assert capsys.readouterr().out.startswith("Hermes работает.")

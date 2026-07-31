@@ -1,6 +1,6 @@
 {
   "project": "Autonomous Content Factory",
-  "status": "completed",
+  "status": "in_progress",
   "tasks": [
     {
       "id": "1",
@@ -55,6 +55,18 @@
       "phase": "Node 1 VPN Transport",
       "description": "Локальный TCP-мост через tailscale nc обходит перехват маршрутов Happ; реальный ComfyUI и CLI history доступны с Node 2",
       "passes": true
+    },
+    {
+      "id": "MVP-01",
+      "phase": "Hermes Content Factory MVP",
+      "description": "Hermes и защищённая Telegram-оболочка",
+      "passes": true
+    },
+    {
+      "id": "MVP-02",
+      "phase": "Hermes Content Factory MVP",
+      "description": "Профиль бренда через /setup",
+      "passes": false
     }
   ]
 }

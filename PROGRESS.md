@@ -2,7 +2,7 @@
 
 | # | Результат | Статус |
 |---|---|---|
-| 01 | Hermes и защищённая Telegram-оболочка | in progress |
+| 01 | Hermes и защищённая Telegram-оболочка | done |
 | 02 | Профиль бренда через `/setup` | pending |
 | 03 | `/new_video`: фото, идея, Hermes и ComfyUI | pending |
 | 04 | Очередь, проверка результата, отмена и повтор | pending |
