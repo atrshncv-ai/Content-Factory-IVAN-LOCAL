@@ -14,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from core.task_control import TaskQueue
+    from core.weekly_plan import WeeklyPlanController
 
 COMMANDS = {
     "/setup": "Настроить профиль бренда",
@@ -97,12 +98,14 @@ class HermesShell:
         active_key_number: int = 0,
         knowledge_path: Path | None = None,
         task_queue: TaskQueue | None = None,
+        weekly_plan: WeeklyPlanController | None = None,
     ) -> None:
         self._admin_ids = admin_ids
         self._state_path = state_path
         self._active_key_number = active_key_number
         self._knowledge_path = knowledge_path
         self._task_queue = task_queue
+        self._weekly_plan = weekly_plan
 
     def handle(self, update: dict[str, Any]) -> str | None:
         event = self._event(update)
@@ -140,8 +143,18 @@ class HermesShell:
                 return self._profile_summary(profile)
             state["setup"] = {"field": 0, "values": {}, "user_id": user_id}
             return "Настройка профиля. Введите название бренда."
-        if command == "/plan" and not self._profile_complete(state):
-            return "Сначала заполните обязательный профиль бренда через /setup."
+        if command == "/plan":
+            if not self._profile_complete(state):
+                return "Сначала заполните обязательный профиль бренда через /setup."
+            if self._weekly_plan is not None:
+                profile = state["brand_profile"]
+                assert isinstance(profile, dict)
+                try:
+                    return self._weekly_plan.start(
+                        state, profile, datetime.now(timezone.utc)
+                    )
+                except RuntimeError as error:
+                    return str(error)
         if command == "/status":
             response = (
                 "Hermes работает.\n"
@@ -165,6 +178,8 @@ class HermesShell:
             return f"Сценарий {command} пока не настроен."
         setup = state.get("setup")
         if not isinstance(setup, dict):
+            if self._weekly_plan is not None:
+                return self._weekly_plan.message(text.strip(), state)
             return None
         return self._accept_setup_value(text.strip(), user_id, setup, state)
 
@@ -175,6 +190,8 @@ class HermesShell:
         state: dict[str, Any],
     ) -> str:
         parts = data.split(":")
+        if self._weekly_plan is not None and parts[0] == "plan":
+            return self._weekly_plan.callback(data, state)
         if (
             self._task_queue is not None
             and len(parts) == 3

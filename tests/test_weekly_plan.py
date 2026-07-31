@@ -9,11 +9,13 @@ from typing import Any
 
 import pytest
 
+from core.hermes_shell import HermesShell
 from core.weekly_plan import (
     SOURCES,
     CandidateStore,
     InsufficientCandidates,
     WeeklyPlan,
+    WeeklyPlanController,
 )
 
 NOW = datetime(2026, 7, 31, 12, tzinfo=timezone.utc)
@@ -55,7 +57,10 @@ def test_candidate_contract_uses_all_sources_and_only_available_metrics(
 
     def fetch(source: str) -> list[dict[str, Any]]:
         calls.append(source)
-        return [_candidate(len(calls), source)]
+        return [
+            _candidate(len(calls) * 2 - 1, source),
+            _candidate(len(calls) * 2, source),
+        ]
 
     candidates, warning = CandidateStore(tmp_path / "analytics.json").collect(
         fetch, NOW
@@ -163,7 +168,7 @@ def test_replace_and_text_edit_change_only_active_card_and_stale_actions_lose(
     replace_revision = plan.revision
     assert plan.cards[0] != original[0]
     assert plan.cards[1:] == original[1:]
-    assert plan.begin_edit(replace_revision) == "Опишите правку"
+    assert plan.begin_edit(replace_revision).startswith("Опишите правку")
 
     def edit(
         profile: dict[str, Any], card: dict[str, str], feedback: str
@@ -196,3 +201,77 @@ def test_final_approval_sets_one_mode_without_scheduling_or_stale_overwrite() ->
     assert "render" not in plan.to_dict()
     with pytest.raises(ValueError, match="устарело"):
         plan.approve("auto", final_revision)
+
+
+def test_controller_persists_one_transition_per_event_and_exposes_revisions(
+    tmp_path: Path,
+) -> None:
+    candidates = [_candidate(index) for index in range(1, 11)]
+    controller = WeeklyPlanController(
+        CandidateStore(tmp_path / "analytics.json"),
+        lambda _source: candidates,
+        lambda _profile, pool: [_card(item) for item in pool[:3]],
+        lambda _profile, pool, _cards, _active: _card(pool[5], " замена"),
+        lambda _profile, card, feedback: {**card, "hook": feedback},
+    )
+    state: dict[str, Any] = {}
+
+    opening = controller.start(state, PROFILE, NOW)
+    assert "Найдено 10" in opening
+    assert "Карточка 1 из 3" in opening
+    assert state["weekly_plan"]["revision"] == 1
+
+    assert "Карточка 1 из 3" in controller.callback(
+        "plan:replace:1", state
+    )
+    assert controller.callback("plan:edit:2", state).startswith("Опишите правку")
+    before = [dict(card) for card in state["weekly_plan"]["cards"]]
+    edit_response = controller.message("Короче", state)
+    assert edit_response is not None and "Карточка 1 из 3" in edit_response
+    assert state["weekly_plan"]["cards"][0]["hook"] == "Короче"
+    assert state["weekly_plan"]["cards"][1:] == before[1:]
+
+    assert "устарело" in controller.callback("plan:accept:1", state).lower()
+    for revision in (4, 5, 6):
+        controller.callback(f"plan:accept:{revision}", state)
+    assert "с проверкой" in controller.callback(
+        "plan:approve:manual:7", state
+    )
+
+
+def test_hermes_shell_routes_plan_clarify_callbacks_and_rejects_stale_revision(
+    tmp_path: Path,
+) -> None:
+    candidates = [_candidate(index) for index in range(1, 11)]
+    controller = WeeklyPlanController(
+        CandidateStore(tmp_path / "analytics.json"),
+        lambda _source: candidates,
+        lambda _profile, pool: [_card(item) for item in pool[:3]],
+        lambda _profile, pool, _cards, _active: _card(pool[5]),
+        lambda _profile, card, feedback: {**card, "idea": feedback},
+    )
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps({"brand_profile": {**PROFILE, "revision": 1}}),
+        encoding="utf-8",
+    )
+    shell = HermesShell(
+        frozenset({101, 202}), state_path, weekly_plan=controller
+    )
+
+    message = {
+        "update_id": 1,
+        "message": {"from": {"id": 101}, "text": "/plan"},
+    }
+    assert "Карточка 1 из 3" in str(shell.handle(message))
+
+    callback = {
+        "callback_query": {
+            "id": "accept-1",
+            "from": {"id": 202},
+            "data": "plan:accept:1",
+        }
+    }
+    assert shell.handle(callback) == "Карточка 2 из 3"
+    callback["callback_query"]["id"] = "accept-stale"
+    assert "устарело" in str(shell.handle(callback)).lower()
