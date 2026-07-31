@@ -23,5 +23,14 @@
     1. Обновить граф знаний: `graphify update .` (или `scripts/update_graph.sh`).
     2. Закоммитить изменения: `git add .` и `git commit -m "feat/fix/chore: [осмысленное описание]"`.
     3. Запушить в `origin main`: `git push origin main` (при первом пуше — `git push -u origin main`).
-```
 
+## Agent skills
+
+### Issue tracker
+
+Спецификации и задачи хранятся локально в Markdown под `.scratch/`. См. `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Проект использует single-context документацию. См. `docs/agents/domain.md`.
+```
