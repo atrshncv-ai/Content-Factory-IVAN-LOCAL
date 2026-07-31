@@ -121,6 +121,30 @@ def test_tick_routes_one_update_to_shell_and_persists_offset(tmp_path: Path) -> 
     assert len(telegram.messages) == 2
 
 
+def test_bootstrap_advances_past_existing_history_without_replies(
+    tmp_path: Path,
+) -> None:
+    telegram = FakeTelegram(
+        [_message(7, 101, "/status"), _message(11, 101, "/setup")]
+    )
+    tick = TelegramPollTick(
+        telegram,
+        HermesShell(frozenset({101}), tmp_path / "state.json"),
+        tmp_path / "offset",
+    )
+
+    assert tick.bootstrap_offset() == 12
+    assert (tmp_path / "offset").read_text() == "12\n"
+    assert telegram.messages == []
+    assert telegram.answers == []
+    assert not (tmp_path / "state.json").exists()
+
+    telegram.pending.append(_message(12, 101, "/status"))
+    assert tick.run_once() == "sent"
+    assert telegram.offsets == [0, 12]
+    assert len(telegram.messages) == 1
+
+
 def test_setup_summary_gets_real_inline_edit_buttons(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     state_path.write_text(

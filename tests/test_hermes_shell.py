@@ -71,14 +71,14 @@ def test_config_rejects_duplicate_admins(monkeypatch: pytest.MonkeyPatch) -> Non
         ShellConfig()
 
 
-def test_config_requires_both_admins_and_selects_available_key(
+def test_config_requires_at_least_one_admin_and_selects_available_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with pytest.raises(ValueError, match="Two Telegram"):
+    with pytest.raises(ValueError, match="at least one"):
         ShellConfig()
 
     monkeypatch.setenv("TELEGRAM_ADMIN_ID_1", "101")
-    monkeypatch.setenv("TELEGRAM_ADMIN_ID_2", "202")
+    assert ShellConfig().admin_ids == frozenset({101})
     assert ShellConfig().active_key_number == 0
     monkeypatch.setenv("OPENCODE_ZEN_API_KEY_2", "test-value-2")
     assert ShellConfig().active_key_number == 2

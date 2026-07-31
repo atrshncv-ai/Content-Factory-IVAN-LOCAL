@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -94,3 +96,67 @@ def test_runtime_artifacts_use_environment_paths_and_no_client_secrets() -> None
     combined = (mac + node1 + autostart).lower()
     assert "kimiadmin" not in combined
     assert "c:\\users\\" not in combined
+
+
+def test_mac_launcher_runs_one_telegram_tick_then_one_orchestrator_tick(
+    tmp_path: Path,
+) -> None:
+    calls = tmp_path / "calls"
+    python = tmp_path / "python"
+    python.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{calls}'\n",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    env = {
+        **os.environ,
+        "HERMES_PROJECT_DIR": str(Path.cwd()),
+        "HERMES_PYTHON": str(python),
+    }
+
+    result = subprocess.run(
+        ["sh", "ops/macos/run_tick.sh"],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert calls.read_text(encoding="utf-8").splitlines() == [
+        "-m core.telegram_gateway tick",
+        "-m core.orchestrator",
+    ]
+
+
+def test_mac_launcher_stops_if_telegram_tick_fails(tmp_path: Path) -> None:
+    calls = tmp_path / "calls"
+    python = tmp_path / "python"
+    python.write_text(
+        (
+            "#!/bin/sh\n"
+            f"printf '%s\\n' \"$*\" >> '{calls}'\n"
+            "case \"$*\" in *telegram_gateway*) exit 9;; esac\n"
+        ),
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    env = {
+        **os.environ,
+        "HERMES_PROJECT_DIR": str(Path.cwd()),
+        "HERMES_PYTHON": str(python),
+    }
+
+    result = subprocess.run(
+        ["sh", "ops/macos/run_tick.sh"],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert calls.read_text(encoding="utf-8").splitlines() == [
+        "-m core.telegram_gateway tick"
+    ]
+    assert "Telegram tick failed" in result.stderr
