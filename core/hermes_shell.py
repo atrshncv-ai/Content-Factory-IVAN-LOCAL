@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from core.task_control import TaskQueue
-    from core.weekly_plan import WeeklyPlanController
+    from core.weekly_plan import ScheduledPlan, WeeklyPlanController
 
 COMMANDS = {
     "/setup": "Настроить профиль бренда",
@@ -99,6 +99,7 @@ class HermesShell:
         knowledge_path: Path | None = None,
         task_queue: TaskQueue | None = None,
         weekly_plan: WeeklyPlanController | None = None,
+        scheduled_plan: ScheduledPlan | None = None,
     ) -> None:
         self._admin_ids = admin_ids
         self._state_path = state_path
@@ -106,6 +107,7 @@ class HermesShell:
         self._knowledge_path = knowledge_path
         self._task_queue = task_queue
         self._weekly_plan = weekly_plan
+        self._scheduled_plan = scheduled_plan
 
     def handle(self, update: dict[str, Any]) -> str | None:
         event = self._event(update)
@@ -136,6 +138,10 @@ class HermesShell:
         user_id: int,
         state: dict[str, Any],
     ) -> str | None:
+        if text.startswith("photo:") and self._scheduled_plan is not None:
+            return self._scheduled_plan.receive_photo(
+                state, text.removeprefix("photo:"), datetime.now(timezone.utc)
+            )
         command = text.strip().split(maxsplit=1)[0].split("@", maxsplit=1)[0]
         if command == "/setup":
             profile = state.get("brand_profile")
@@ -190,6 +196,13 @@ class HermesShell:
         state: dict[str, Any],
     ) -> str:
         parts = data.split(":")
+        if (
+            self._scheduled_plan is not None
+            and parts == ["plan", "photo_confirm"]
+        ):
+            return self._scheduled_plan.confirm_photo(
+                state, datetime.now(timezone.utc)
+            )
         if self._weekly_plan is not None and parts[0] == "plan":
             return self._weekly_plan.callback(data, state)
         if (
@@ -353,8 +366,20 @@ class HermesShell:
         if not isinstance(message, dict) or update_id is None:
             return None
         sender = message.get("from")
+        if not isinstance(sender, dict):
+            return None
         text = message.get("text")
-        if not isinstance(sender, dict) or not isinstance(text, str):
+        photos = message.get("photo")
+        if not isinstance(text, str) and isinstance(photos, list):
+            largest = max(
+                (photo for photo in photos if isinstance(photo, dict)),
+                key=lambda photo: int(photo.get("width", 0))
+                * int(photo.get("height", 0)),
+                default=None,
+            )
+            if largest is not None and largest.get("file_id"):
+                text = f"photo:{largest['file_id']}"
+        if not isinstance(text, str):
             return None
         return f"update:{update_id}", int(sender["id"]), text
 

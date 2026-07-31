@@ -35,8 +35,60 @@ class TaskQueue:
             raise ValueError("Допускается не более трёх незавершённых задач")
         self._db.upsert_job(job_id, "received")
         self._db.update_job_control(
-            job_id, approval_mode=mode, seed=seed, render_started_at=None
+            job_id, approval_mode=mode, seed=seed, render_started_at=None,
+            job_kind="manual",
         )
+
+    def create_scheduled(
+        self,
+        job_id: str,
+        mode: str,
+        publish_at: datetime,
+        scenario: str,
+        prompt: str,
+    ) -> None:
+        """Идемпотентно создаёт плановую задачу, не запуская её."""
+        if self._db.fetch_job(job_id) is not None:
+            return
+        if mode not in {"manual", "auto"}:
+            raise ValueError("Режим должен быть manual или auto")
+        self._db.upsert_job(job_id, "awaiting_photo")
+        self._db.update_job_control(
+            job_id,
+            approval_mode=mode,
+            job_kind="scheduled",
+            publish_at=publish_at.isoformat(),
+            due_at=(publish_at - timedelta(hours=3)).isoformat(),
+            concept=scenario,
+            video_prompt=prompt,
+        )
+
+    def set_photo(self, job_id: str, source_path: str, now: datetime) -> None:
+        job = self._required(job_id)
+        if job["status"] in {"generating", "result_ready", *TERMINAL}:
+            raise ValueError("После старта отмените задачу и создайте новую")
+        due = self._parse(job["due_at"])
+        status = str(job["status"])
+        if due is not None and now >= due:
+            status = "queued" if job["approval_mode"] == "auto" else "awaiting_approval"
+        elif job["job_kind"] == "scheduled":
+            status = "scheduled"
+        self._db.update_job_control(
+            job_id, source_path=source_path, status=status
+        )
+
+    def update_schedule(
+        self, job_id: str, publish_at: datetime, *, mode: str | None = None
+    ) -> None:
+        values: dict[str, object] = {
+            "publish_at": publish_at.isoformat(),
+            "due_at": (publish_at - timedelta(hours=3)).isoformat(),
+        }
+        if mode is not None:
+            if mode not in {"manual", "auto"}:
+                raise ValueError("Режим должен быть manual или auto")
+            values["approval_mode"] = mode
+        self._db.update_job_control(job_id, **values)
 
     def plan(
         self, job_id: str, scenario: str, prompt: str, now: datetime
@@ -74,14 +126,47 @@ class TaskQueue:
         health: Callable[[], bool] = lambda: True,
         cancel_render: Callable[[str], None] = lambda _job_id: None,
     ) -> dict[str, str]:
+        jobs = self._jobs()
         active = next(
-            (row for row in self._manual_jobs() if row["status"] == "generating"),
+            (row for row in jobs if row["status"] == "generating"),
             None,
         )
         if active is not None:
             return self._tick_active(active, now, health, cancel_render)
+        due_missing = next(
+            (
+                row for row in self._scheduled_jobs()
+                if row["status"] == "awaiting_photo"
+                and (due := self._parse(row["due_at"])) is not None
+                and due <= now
+                and row["photo_notice_at"] is None
+            ),
+            None,
+        )
+        if due_missing is not None:
+            job_id = str(due_missing["job_id"])
+            self._db.update_job_control(job_id, photo_notice_at=now.isoformat())
+            return {"stage": "missing_photo", "job_id": job_id}
+        due_ready = next(
+            (
+                row for row in self._scheduled_jobs()
+                if row["status"] == "scheduled"
+                and (due := self._parse(row["due_at"])) is not None
+                and due <= now
+            ),
+            None,
+        )
+        if due_ready is not None:
+            job_id = str(due_ready["job_id"])
+            status = (
+                "queued"
+                if due_ready["approval_mode"] == "auto"
+                else "awaiting_approval"
+            )
+            self._db.update_job_control(job_id, status=status)
+            return {"stage": status, "job_id": job_id}
         queued = next(
-            (row for row in self._manual_jobs() if row["status"] == "queued"),
+            (row for row in self._priority_jobs(now) if row["status"] == "queued"),
             None,
         )
         if queued is None:
@@ -227,8 +312,23 @@ class TaskQueue:
     def _manual_jobs(self) -> list[Any]:
         return [
             row for row in self._db.fetch_jobs()
-            if str(row["job_id"]).startswith("tg-")
+            if row["job_kind"] == "manual"
         ]
+
+    def _scheduled_jobs(self) -> list[Any]:
+        return [row for row in self._db.fetch_jobs() if row["job_kind"] == "scheduled"]
+
+    def _jobs(self) -> list[Any]:
+        return self._db.fetch_jobs()
+
+    def _priority_jobs(self, now: datetime) -> list[Any]:
+        def key(row: Any) -> tuple[int, datetime, int]:
+            due = self._parse(row["due_at"])
+            if row["job_kind"] == "scheduled" and due is not None:
+                return (0, due, int(row["id"]))
+            return (1, now, int(row["id"]))
+
+        return sorted(self._jobs(), key=key)
 
     def _required(self, job_id: str) -> Any:
         job = self._db.fetch_job(job_id)

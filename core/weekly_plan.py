@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, ClassVar
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
+
+from core.task_control import TERMINAL, TaskQueue
 
 SOURCES = ("google_trends", "youtube", "tiktok_creative_center", "instagram")
 SOURCE_NOTES = {
@@ -268,12 +271,14 @@ class WeeklyPlanController:
         strategize: Strategize,
         replace: Replace,
         edit: Edit,
+        scheduled: ScheduledPlan | None = None,
     ) -> None:
         self._store = store
         self._fetch = fetch
         self._strategize = strategize
         self._replace = replace
         self._edit = edit
+        self._scheduled = scheduled
 
     def start(
         self,
@@ -311,6 +316,8 @@ class WeeklyPlanController:
         except (KeyError, TypeError, ValueError) as error:
             return str(error)
         state["weekly_plan"] = plan.to_dict()
+        if plan.phase == "approved" and self._scheduled is not None:
+            return f"{response}\n{self._scheduled.connect_approved(state, datetime.now().astimezone())}"
         return response
 
     def message(self, text: str, state: dict[str, Any]) -> str | None:
@@ -325,9 +332,162 @@ class WeeklyPlanController:
         state["weekly_plan"] = plan.to_dict()
         return response
 
+    def cron(
+        self, state: dict[str, Any], profile: dict[str, Any], now: datetime
+    ) -> str | None:
+        """Один cron-тик: воскресный черновик либо одно напоминание."""
+        local = now.astimezone(ZoneInfo(str(profile["timezone"])))
+        week = f"{local.isocalendar().year}-{local.isocalendar().week}"
+        plan = state.get("weekly_plan")
+        if (
+            local.weekday() == 6
+            and local.hour >= 10
+            and not (isinstance(plan, dict) and plan.get("phase") == "approved")
+            and state.get("draft_week") != week
+        ):
+            opening = self.start(state, profile, now)
+            state["draft_week"] = week
+            return f"Создан черновик недельного плана.\n{opening}"
+        plan = state.get("weekly_plan")
+        if (
+            local.weekday() == 0
+            and isinstance(plan, dict)
+            and plan.get("phase") != "approved"
+            and state.get("reminder_week") != week
+        ):
+            state["reminder_week"] = week
+            return "Напоминание: утвердите недельный план."
+        return None
+
     @staticmethod
     def _load(state: dict[str, Any]) -> WeeklyPlan:
         value = state.get("weekly_plan")
         if not isinstance(value, dict):
             raise ValueError("Сначала откройте /plan")
         return WeeklyPlan.from_dict(value)
+
+
+class ScheduledPlan:
+    """Тонко связывает утверждённый план с общей очередью ComfyUI."""
+
+    def __init__(self, queue: TaskQueue) -> None:
+        self._queue = queue
+
+    def connect_approved(self, state: dict[str, Any], now: datetime) -> str:
+        plan = self._approved(state)
+        timezone = ZoneInfo(str(plan["profile"]["timezone"]))
+        fallback = self._fallback(now.astimezone(timezone))
+        for index, card in enumerate(plan["cards"], 1):
+            try:
+                publish_at = datetime.fromisoformat(str(card["publish_at"]))
+                if publish_at.tzinfo is None:
+                    raise ValueError
+            except (TypeError, ValueError):
+                publish_at = fallback[index - 1]
+                card["publish_at"] = publish_at.isoformat()
+            self._queue.create_scheduled(
+                self._job_id(plan, index),
+                str(plan["mode"]),
+                publish_at,
+                f"{card['hook']}\n{card['idea']}",
+                str(card["idea"]),
+            )
+        collection = state.setdefault(
+            "photo_collection", {"active": 1, "pending": None, "replace": False}
+        )
+        active = int(collection["active"])
+        return f"Пришлите фото для карточки {active} из 3."
+
+    def receive_photo(
+        self, state: dict[str, Any], source_path: str, now: datetime
+    ) -> str:
+        plan = self._approved(state)
+        collection = self._collection(state)
+        active = int(collection["active"])
+        job = self._queue.get(self._job_id(plan, active))
+        if job["status"] in {"generating", "result_ready", *TERMINAL}:
+            raise ValueError("После старта требуется отмена и новая задача")
+        collection["pending"] = source_path
+        replacing = job["source_path"] is not None
+        collection["replace"] = replacing
+        noun = "замену фото" if replacing else "фото"
+        return f"Подтвердите {noun} для карточки {active}."
+
+    def confirm_photo(self, state: dict[str, Any], now: datetime) -> str:
+        plan = self._approved(state)
+        collection = self._collection(state)
+        source = collection.get("pending")
+        if not isinstance(source, str):
+            raise ValueError("Сначала пришлите фото")
+        active = int(collection["active"])
+        self._queue.set_photo(self._job_id(plan, active), source, now)
+        collection["pending"] = None
+        collection["replace"] = False
+        if active < 3:
+            collection["active"] = active + 1
+            return f"Пришлите фото для карточки {active + 1} из 3."
+        collection["active"] = 1
+        return "Все три фото подтверждены."
+
+    def set_mode(
+        self,
+        state: dict[str, Any],
+        card_index: int,
+        mode: str,
+        now: datetime,
+    ) -> None:
+        plan = self._approved(state)
+        job = self._queue.get(self._job_id(plan, card_index))
+        self._before_due_day(job, now)
+        self._queue.update_schedule(
+            str(job["job_id"]), datetime.fromisoformat(str(job["publish_at"])), mode=mode
+        )
+
+    def reschedule(
+        self,
+        state: dict[str, Any],
+        card_index: int,
+        publish_at: datetime,
+        now: datetime,
+    ) -> None:
+        plan = self._approved(state)
+        job = self._queue.get(self._job_id(plan, card_index))
+        self._before_due_day(job, now)
+        self._queue.update_schedule(str(job["job_id"]), publish_at)
+        plan["cards"][card_index - 1]["publish_at"] = publish_at.isoformat()
+
+    @staticmethod
+    def _before_due_day(job: Any, now: datetime) -> None:
+        due = datetime.fromisoformat(str(job["due_at"]))
+        if now.astimezone(due.tzinfo).date() >= due.date():
+            raise ValueError("Изменение разрешено только до дня генерации")
+
+    @staticmethod
+    def _fallback(now: datetime) -> list[datetime]:
+        result: list[datetime] = []
+        cursor = now.date()
+        while len(result) < 3:
+            cursor += timedelta(days=1)
+            if cursor.weekday() in {1, 3, 5}:
+                result.append(
+                    datetime(cursor.year, cursor.month, cursor.day, 18, tzinfo=now.tzinfo)
+                )
+        return result
+
+    @staticmethod
+    def _approved(state: dict[str, Any]) -> dict[str, Any]:
+        plan = state.get("weekly_plan")
+        if not isinstance(plan, dict) or plan.get("phase") != "approved":
+            raise ValueError("Сначала утвердите недельный план")
+        return plan
+
+    @staticmethod
+    def _collection(state: dict[str, Any]) -> dict[str, Any]:
+        value = state.get("photo_collection")
+        if not isinstance(value, dict):
+            raise ValueError("Сначала подключите утверждённый план")
+        return value
+
+    @staticmethod
+    def _job_id(plan: dict[str, Any], index: int) -> str:
+        return f"plan-{plan['revision']}-{index}"

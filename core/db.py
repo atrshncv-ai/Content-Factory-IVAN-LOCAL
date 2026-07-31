@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS media_jobs (
     node_notice_count INTEGER NOT NULL DEFAULT 0,
     user_rerenders INTEGER NOT NULL DEFAULT 0,
     seed         INTEGER NOT NULL DEFAULT 0,
+    job_kind     TEXT NOT NULL DEFAULT 'manual',
+    publish_at   TEXT,
+    due_at       TEXT,
+    photo_notice_at TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -72,6 +76,10 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("media_jobs", "node_notice_count", "INTEGER NOT NULL DEFAULT 0"),
     ("media_jobs", "user_rerenders", "INTEGER NOT NULL DEFAULT 0"),
     ("media_jobs", "seed", "INTEGER NOT NULL DEFAULT 0"),
+    ("media_jobs", "job_kind", "TEXT NOT NULL DEFAULT 'manual'"),
+    ("media_jobs", "publish_at", "TEXT"),
+    ("media_jobs", "due_at", "TEXT"),
+    ("media_jobs", "photo_notice_at", "TEXT"),
 ]
 
 
@@ -207,6 +215,7 @@ class Database:
             "status", "attempts", "approval_mode", "render_started_at",
             "notice_at", "node_notice_at", "user_rerenders", "seed",
             "node_notice_count", "concept", "video_prompt",
+            "job_kind", "publish_at", "due_at", "photo_notice_at", "source_path",
         }
         if not values or not set(values) <= allowed:
             raise ValueError("Unsupported media job control field")

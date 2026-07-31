@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from core.db import Database
+from core.hermes_shell import HermesShell
 from core.task_control import TaskQueue
 from core.weekly_plan import ScheduledPlan, WeeklyPlanController, CandidateStore
 
@@ -103,8 +104,13 @@ def test_photos_are_collected_sequentially_confirmed_and_latest_wins_before_star
     scheduled.confirm_photo(state, NOW)
     assert queue.get("plan-8-1")["source_path"] == "replacement"
 
-    queue.tick(datetime(2026, 8, 4, 15, 0, tzinfo=SAMARA), lambda _job: None)
-    queue.tick(datetime(2026, 8, 4, 15, 1, tzinfo=SAMARA), lambda _job: None)
+    due = datetime(2026, 8, 4, 15, 0, tzinfo=SAMARA)
+    queue.tick(due, lambda _job: None)
+    queue.approve("plan-8-1", due)
+    queue.tick(due + timedelta(minutes=1), lambda _job: None)
+    queue.tick(due + timedelta(minutes=2), lambda _job: None)
+    queue.tick(due + timedelta(minutes=3), lambda _job: None)
+    state["photo_collection"]["active"] = 1
     with pytest.raises(ValueError, match="отмен"):
         scheduled.receive_photo(
             state, "too-late", datetime(2026, 8, 4, 15, 2, tzinfo=SAMARA)
@@ -156,9 +162,11 @@ def test_overdue_and_nearest_scheduled_priority_over_manual_without_preemption(
         else:
             publish = NOW + (timedelta(hours=1) if job_id == "plan-old" else timedelta(hours=2))
             queue.create_scheduled(job_id, "auto", publish, "s", "p")
-            queue.set_photo(job_id, job_id)
+            queue.set_photo(job_id, job_id, NOW)
 
     submitted: list[str] = []
+    queue.tick(NOW, lambda _job: None)
+    queue.tick(NOW, lambda _job: None)
     first = queue.tick(NOW, lambda job: submitted.append(str(job["job_id"])))
     assert first["job_id"] == "plan-old"
     assert queue.tick(NOW, lambda _job: None)["job_id"] == "plan-old"
@@ -186,10 +194,47 @@ def test_sunday_draft_guard_and_single_monday_reminder(tmp_path: Path) -> None:
     )
     state: dict[str, Any] = {}
 
-    assert controller.cron(state, PROFILE, NOW).startswith("Создан черновик")
+    draft = controller.cron(state, PROFILE, NOW)
+    assert draft is not None and draft.startswith("Создан черновик")
     assert controller.cron(state, PROFILE, NOW) is None
     monday = NOW + timedelta(days=1)
     assert controller.cron(state, PROFILE, monday) == (
         "Напоминание: утвердите недельный план."
     )
     assert controller.cron(state, PROFILE, monday + timedelta(hours=1)) is None
+
+
+def test_shell_routes_plan_photo_and_confirmation_once(
+    queue: TaskQueue, tmp_path: Path
+) -> None:
+    state = {"weekly_plan": _plan()}
+    scheduled = ScheduledPlan(queue)
+    scheduled.connect_approved(state, NOW)
+    state_path = tmp_path / "state.json"
+    import json
+
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    shell = HermesShell(
+        frozenset({101, 202}), state_path, scheduled_plan=scheduled
+    )
+    photo = {
+        "update_id": 10,
+        "message": {
+            "from": {"id": 101},
+            "photo": [
+                {"file_id": "small", "width": 100, "height": 100},
+                {"file_id": "photo-file", "width": 1000, "height": 1000},
+            ],
+        },
+    }
+    assert shell.handle(photo) == "Подтвердите фото для карточки 1."
+    assert shell.handle(photo) is None
+    assert shell.handle(
+        {
+            "callback_query": {
+                "id": "confirm-photo",
+                "from": {"id": 202},
+                "data": "plan:photo_confirm",
+            }
+        }
+    ) == "Пришлите фото для карточки 2 из 3."
