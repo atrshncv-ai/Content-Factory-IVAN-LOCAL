@@ -408,8 +408,10 @@ def _make_plan(llm: LLMClient, topic: str) -> tuple[str, str]:
         {
             "role": "user",
             "content": (
-                "Create a short vertical social-video scenario and a technical "
-                "English image-to-video prompt for LTX-2.3 based on this topic: "
+                "Create exactly one short vertical social-video scenario in Russian "
+                "with sections Хук (0–2 с), Развитие (2–8 с), Завершение (8–10+ с) "
+                "and a Russian spoken line of at most 20 words. Also create exactly "
+                "one technical English image-to-video prompt for LTX-2.3. Topic: "
                 f"{topic!r}. Describe camera movement and subject motion while "
                 "preserving the person/object from the supplied first frame. "
                 'Return only JSON: {"scenario":"...","video_prompt":"..."}'

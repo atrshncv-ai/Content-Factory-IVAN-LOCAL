@@ -67,6 +67,12 @@
       "phase": "Hermes Content Factory MVP",
       "description": "Профиль бренда через /setup",
       "passes": true
+    },
+    {
+      "id": "MVP-03",
+      "phase": "Hermes Content Factory MVP",
+      "description": "/new_video: фото, идея, Hermes и ComfyUI",
+      "passes": true
     }
   ]
 }
