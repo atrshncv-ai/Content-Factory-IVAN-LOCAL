@@ -73,6 +73,17 @@ class TelegramPollTick:
         self.last_result = {"stage": "sent", "chat_id": chat_id}
         return "sent"
 
+    def bootstrap_offset(self) -> int:
+        """Пропускает накопленную историю, не передавая её в shell."""
+        updates = self._telegram.updates(-1)
+        offset = max(
+            (int(update["update_id"]) + 1 for update in updates),
+            default=0,
+        )
+        self._save_offset(offset)
+        self.last_result = {"stage": "bootstrapped", "offset": offset}
+        return offset
+
     def _offset(self) -> int:
         try:
             return int(self._offset_path.read_text(encoding="utf-8").strip())
@@ -107,7 +118,10 @@ def main(argv: list[str] | None = None) -> int:
     from core.telegram_mvp import TelegramHTTP
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("register-menu", "tick"))
+    parser.add_argument(
+        "action",
+        choices=("register-menu", "bootstrap-offset", "tick"),
+    )
     args = parser.parse_args(argv)
     config = ShellConfig()
     if config.telegram_bot_token is None:
@@ -121,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     offset_path = config.hermes_state_path.with_name(
         f"{config.hermes_state_path.name}.telegram-offset"
     )
-    result = TelegramPollTick(
+    poll_tick = TelegramPollTick(
         telegram,
         HermesShell(
             config.admin_ids,
@@ -130,7 +144,11 @@ def main(argv: list[str] | None = None) -> int:
             config.hermes_knowledge_path,
         ),
         offset_path,
-    ).run_once()
+    )
+    if args.action == "bootstrap-offset":
+        print(poll_tick.bootstrap_offset())
+        return 0
+    result = poll_tick.run_once()
     print(result)
     return 0
 

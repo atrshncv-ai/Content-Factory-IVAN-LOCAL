@@ -9,12 +9,21 @@ uv run python -m scripts.acceptance_harness preflight
 uv run python -m scripts.job_server
 ```
 
-После заполнения `TELEGRAM_BOT_TOKEN`, двух `TELEGRAM_ADMIN_ID_*` и
+После заполнения `TELEGRAM_BOT_TOKEN`, хотя бы одного `TELEGRAM_ADMIN_ID_*` и
 `HERMES_STATE_PATH` один раз зарегистрировать меню:
 
 ```sh
 uv run python -m core.telegram_gateway register-menu
 ```
+
+До первого poll tick безопасно пропустить уже накопленную историю бота:
+
+```sh
+uv run python -m core.telegram_gateway bootstrap-offset
+```
+
+Команда не отвечает на старые сообщения. Повторный запуск также пропустит все
+ещё не обработанные события, поэтому штатно она выполняется только один раз.
 
 Обработка Telegram выполняется одноразовым тиком, который принимает не более
 одного update, сохраняет offset и завершается:
@@ -38,9 +47,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.hermes.content-facto
 launchctl kickstart -k gui/$(id -u)/com.hermes.content-factory
 ```
 
-Шаблон запускает `python -m core.orchestrator` раз в 60 секунд; процесс делает
-один тик и завершается. Telegram gateway запускается указанной выше
-одноразовой командой.
+Шаблон раз в 60 секунд запускает один Telegram tick, затем один orchestrator
+tick и завершается. При сбое любого шага launcher возвращает ненулевой код и
+пишет название упавшего шага в stderr.
 
 ## Windows Node 1
 

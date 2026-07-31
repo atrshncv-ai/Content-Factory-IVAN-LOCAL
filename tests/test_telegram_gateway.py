@@ -141,7 +141,7 @@ def test_bootstrap_advances_past_existing_history_without_replies(
 
     telegram.pending.append(_message(12, 101, "/status"))
     assert tick.run_once() == "sent"
-    assert telegram.offsets == [0, 12]
+    assert telegram.offsets == [-1, 12]
     assert len(telegram.messages) == 1
 
 

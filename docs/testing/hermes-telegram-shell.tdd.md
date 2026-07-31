@@ -40,8 +40,8 @@ the one-event CLI.
 
 | Guarantee | Test type | Evidence |
 |---|---|---|
-| Exactly two distinct admin IDs are loaded from env | unit | `test_config_requires_two_distinct_admins_and_two_named_key_slots` |
-| Missing/duplicate admins fail closed | unit | `test_config_rejects_duplicate_admins`, `test_config_requires_both_admins_and_selects_available_key` |
+| One or two distinct admin IDs are loaded from env | unit | `test_config_requires_two_distinct_admins_and_two_named_key_slots`, `test_config_requires_at_least_one_admin_and_selects_available_key` |
+| Missing/duplicate admins fail closed | unit | `test_config_rejects_duplicate_admins`, `test_config_requires_at_least_one_admin_and_selects_available_key` |
 | Both Zen key slots are env-backed and status exposes only a slot number | unit | config and safe-status tests |
 | Only the five requested commands have Russian descriptions | contract | `test_only_five_russian_commands_are_registered` |
 | Unknown Telegram IDs are silently ignored | security contract | `test_unknown_user_is_silently_ignored` |
@@ -99,3 +99,31 @@ Success: no issues found in 39 source files
 ```
 
 No real Telegram token was called by the automated suite.
+
+## Runtime regression: bootstrap and Mac launcher
+
+RED was captured before production changes:
+
+```text
+$ uv run pytest -q tests/test_telegram_gateway.py tests/test_hermes_shell.py tests/test_acceptance_harness.py
+4 failed, 21 passed
+```
+
+The failures proved that bootstrap offset was absent, a single configured
+administrator was rejected, the Mac launcher omitted Telegram, and a Telegram
+failure did not fail the launcher. RED checkpoint: `6b0db14`.
+
+GREEN:
+
+```text
+$ uv run pytest -q tests/test_telegram_gateway.py tests/test_hermes_shell.py tests/test_acceptance_harness.py
+25 passed
+$ uv run mypy core/telegram_gateway.py core/hermes_shell.py tests/test_telegram_gateway.py tests/test_hermes_shell.py tests/test_acceptance_harness.py
+Success: no issues found in 5 source files
+```
+
+`test_bootstrap_advances_past_existing_history_without_replies` proves that
+old updates only advance the persisted offset and never reach the shell or
+Telegram replies. Launcher tests prove exact one-shot command order and
+fail-fast behavior without calling Telegram, launchd, or a real Python
+runtime.

@@ -70,17 +70,25 @@ class ShellConfig(BaseSettings):
 
     @model_validator(mode="after")
     def require_distinct_admins(self) -> ShellConfig:
-        if self.telegram_admin_id_1 is None or self.telegram_admin_id_2 is None:
-            raise ValueError("Two Telegram administrator IDs are required")
-        if self.telegram_admin_id_1 == self.telegram_admin_id_2:
+        if self.telegram_admin_id_1 is None and self.telegram_admin_id_2 is None:
+            raise ValueError("Telegram requires at least one administrator ID")
+        if (
+            self.telegram_admin_id_1 is not None
+            and self.telegram_admin_id_1 == self.telegram_admin_id_2
+        ):
             raise ValueError("Telegram administrator IDs must be distinct")
         return self
 
     @property
     def admin_ids(self) -> frozenset[int]:
-        assert self.telegram_admin_id_1 is not None
-        assert self.telegram_admin_id_2 is not None
-        return frozenset((self.telegram_admin_id_1, self.telegram_admin_id_2))
+        return frozenset(
+            admin_id
+            for admin_id in (
+                self.telegram_admin_id_1,
+                self.telegram_admin_id_2,
+            )
+            if admin_id is not None
+        )
 
     @property
     def active_key_number(self) -> int:
