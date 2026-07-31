@@ -73,6 +73,12 @@
       "phase": "Hermes Content Factory MVP",
       "description": "/new_video: фото, идея, Hermes и ComfyUI",
       "passes": true
+    },
+    {
+      "id": "MVP-04",
+      "phase": "Hermes Content Factory MVP",
+      "description": "Очередь, проверка результата, отмена и повтор",
+      "passes": true
     }
   ]
 }
