@@ -142,6 +142,11 @@ class HermesShell:
                 f"Активный OpenCode Zen ключ: №{self._active_key_number}.\n"
                 "Telegram-оболочка: готова."
             )
+        if command == "/new_video":
+            return (
+                "Пришлите JPEG, PNG или WebP с идеей в подписи. "
+                "Минимальная сторона — 720 px."
+            )
         if command.startswith("/") and command in COMMANDS:
             return f"Сценарий {command} пока не настроен."
         setup = state.get("setup")

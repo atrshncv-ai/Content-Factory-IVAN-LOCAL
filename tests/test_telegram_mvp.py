@@ -189,7 +189,8 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
     )
 
     assert worker.run_once()["stage"] == "received"
-    assert db.fetch_job("tg-42")["attempts"] == 0
+    received = db.fetch_job("tg-42")
+    assert received is not None and received["attempts"] == 0
     assert worker.run_once()["stage"] == "planned"
     assert worker.run_once()["stage"] == "submitted"
     assert worker.run_once()["stage"] == "polled"
@@ -209,13 +210,15 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
 
 def test_invalid_photo_does_not_create_job_or_spend_attempt(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db = Database(str(tmp_path / "mvp.db"))
     db.init_schema()
     telegram = _Telegram()
-    telegram.download_photo = lambda _file_id, destination: destination.write_bytes(
-        _png(640, 1280)
-    )
+    def download_small(_file_id: str, destination: Path) -> None:
+        destination.write_bytes(_png(640, 1280))
+
+    monkeypatch.setattr(telegram, "download_photo", download_small)
     worker = MVPWorker(
         db=db,
         telegram=telegram,

@@ -75,7 +75,10 @@ class Settings(BaseSettings):
     tailscale_proxy_listen_port: int | None = None
     telegram_bot_token: SecretStr | None = None
     telegram_chat_id: int | None = None
+    telegram_admin_id_1: int | None = None
+    telegram_admin_id_2: int | None = None
     telegram_mvp_dir: str = "data/telegram"
+    comfyui_workflow_sha256: str | None = None
 
     headroom_enabled: bool = False
     headroom_api_key: str | None = None

@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS media_jobs (
     job_id       TEXT NOT NULL UNIQUE,
     status       TEXT NOT NULL,
     file_path    TEXT,
+    source_path  TEXT,
+    attempts     INTEGER NOT NULL DEFAULT 0,
     concept      TEXT,
     video_prompt TEXT,
     photo_prompt TEXT,
@@ -54,6 +56,8 @@ _MIGRATIONS: list[tuple[str, str, str]] = [
     ("media_jobs", "photo_prompt", "TEXT"),
     ("media_jobs", "trend_title", "TEXT"),
     ("media_jobs", "trend_url", "TEXT"),
+    ("media_jobs", "source_path", "TEXT"),
+    ("media_jobs", "attempts", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -128,6 +132,7 @@ class Database:
         job_id: str,
         status: str,
         file_path: str | None = None,
+        source_path: str | None = None,
         concept: str | None = None,
         video_prompt: str | None = None,
         photo_prompt: str | None = None,
@@ -143,12 +148,13 @@ class Database:
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO media_jobs (job_id, status, file_path, concept,
+                INSERT INTO media_jobs (job_id, status, file_path, source_path, concept,
                                         video_prompt, photo_prompt, trend_title, trend_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     status = excluded.status,
                     file_path = COALESCE(excluded.file_path, media_jobs.file_path),
+                    source_path = COALESCE(excluded.source_path, media_jobs.source_path),
                     concept = COALESCE(excluded.concept, media_jobs.concept),
                     video_prompt = COALESCE(excluded.video_prompt, media_jobs.video_prompt),
                     photo_prompt = COALESCE(excluded.photo_prompt, media_jobs.photo_prompt),
@@ -156,7 +162,7 @@ class Database:
                     trend_url = COALESCE(excluded.trend_url, media_jobs.trend_url),
                     updated_at = datetime('now')
                 """,
-                (job_id, status, file_path, concept, video_prompt, photo_prompt,
+                (job_id, status, file_path, source_path, concept, video_prompt, photo_prompt,
                  trend_title, trend_url),
             )
 

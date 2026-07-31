@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import mimetypes
 import re
 import subprocess
@@ -37,6 +38,68 @@ class TelegramGateway(Protocol):
     def download_photo(self, file_id: str, destination: Path) -> None: ...
 
     def send_video(self, chat_id: int, video: Path, caption: str) -> None: ...
+
+
+def assert_workflow_checksum(path: Path, approved: str | None) -> str:
+    """Сверяет API workflow с одобренным SHA-256, если он настроен."""
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if approved is not None and actual.lower() != approved.strip().lower():
+        raise ValueError("Workflow отклонён: контрольная сумма не совпала")
+    return actual
+
+
+def _jpeg_size(data: bytes) -> tuple[int, int] | None:
+    offset = 2
+    while offset + 9 < len(data):
+        if data[offset] != 0xFF:
+            offset += 1
+            continue
+        marker = data[offset + 1]
+        if marker in range(0xC0, 0xC4):
+            return int.from_bytes(data[offset + 7 : offset + 9], "big"), int.from_bytes(
+                data[offset + 5 : offset + 7], "big"
+            )
+        length = int.from_bytes(data[offset + 2 : offset + 4], "big")
+        if length < 2:
+            break
+        offset += length + 2
+    return None
+
+
+def _webp_size(data: bytes) -> tuple[int, int] | None:
+    if data[12:16] == b"VP8X" and len(data) >= 30:
+        return (
+            1 + int.from_bytes(data[24:27], "little"),
+            1 + int.from_bytes(data[27:30], "little"),
+        )
+    if data[12:16] == b"VP8 " and len(data) >= 30:
+        return (
+            int.from_bytes(data[26:28], "little") & 0x3FFF,
+            int.from_bytes(data[28:30], "little") & 0x3FFF,
+        )
+    if data[12:16] == b"VP8L" and len(data) >= 25 and data[20] == 0x2F:
+        bits = int.from_bytes(data[21:25], "little")
+        return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+    return None
+
+
+def validate_photo(path: Path) -> tuple[str, int, int]:
+    """Проверяет читаемый JPEG/PNG/WebP и минимальную сторону 720 px."""
+    data = path.read_bytes()
+    kind = ""
+    size: tuple[int, int] | None = None
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
+        kind = "png"
+        size = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    elif data.startswith(b"\xff\xd8"):
+        kind, size = "jpeg", _jpeg_size(data)
+    elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        kind, size = "webp", _webp_size(data)
+    if size is None or not all(size):
+        raise ValueError("Нужно читаемое фото JPEG, PNG или WebP")
+    if min(size) < 720:
+        raise ValueError("Минимальная сторона фото — 720 px")
+    return kind, size[0], size[1]
 
 
 def parse_request(
@@ -172,6 +235,9 @@ class MVPWorker:
         submit: Callable[[str, Path, str], None],
         poll: Callable[[], object],
         download_video: Callable[[str, Path], None],
+        health_check: Callable[[], object] = lambda: None,
+        store_on_node1: Callable[[str, Path, Path], None] = lambda *_: None,
+        delivery_chat_ids: frozenset[int] | None = None,
     ) -> None:
         self._db = db
         self._telegram = telegram
@@ -181,6 +247,9 @@ class MVPWorker:
         self._submit = submit
         self._poll = poll
         self._download_video = download_video
+        self._health_check = health_check
+        self._store_on_node1 = store_on_node1
+        self._delivery_chat_ids = delivery_chat_ids or frozenset({allowed_chat_id})
 
     def run_once(self) -> dict[str, str]:
         self._work_dir.mkdir(parents=True, exist_ok=True)
@@ -211,9 +280,10 @@ class MVPWorker:
         ready = self._db.fetch_jobs_by_status("tg_ready")
         if ready:
             job = ready[0]
+            self._health_check()
             self._submit(
                 str(job["job_id"]),
-                Path(str(job["file_path"])),
+                Path(str(job["source_path"] or job["file_path"])),
                 str(job["video_prompt"]),
             )
             self._db.upsert_job(str(job["job_id"]), "generating")
@@ -240,10 +310,16 @@ class MVPWorker:
                 continue
             image = self._work_dir / f"{job_id}.jpg"
             self._telegram.download_photo(request.file_id, image)
+            try:
+                validate_photo(image)
+            except ValueError:
+                image.unlink(missing_ok=True)
+                return {"stage": "invalid_photo", "job_id": job_id}
             self._db.upsert_job(
                 job_id,
                 "tg_received",
                 file_path=str(image),
+                source_path=str(image),
                 trend_title=request.topic,
                 trend_url=f"telegram:{request.update_id}",
             )
@@ -262,11 +338,15 @@ class MVPWorker:
             tzinfo=timezone.utc
         )
         elapsed = int((datetime.now(timezone.utc) - created).total_seconds())
-        self._telegram.send_video(
-            self._allowed_chat_id,
-            video,
-            f"Видео готово. Полный цикл: {elapsed // 60} мин {elapsed % 60} сек.",
-        )
+        source = Path(str(job["source_path"]))
+        self._store_on_node1(job_id, source, video)
+        for chat_id in sorted(self._delivery_chat_ids):
+            self._telegram.send_video(
+                chat_id,
+                video,
+                f"{job_id}: видео готово. Полный цикл: "
+                f"{elapsed // 60} мин {elapsed % 60} сек.",
+            )
         for temporary in self._work_dir.glob(f"{job_id}*"):
             temporary.unlink(missing_ok=True)
         video.unlink(missing_ok=True)
@@ -277,12 +357,18 @@ class ComfyHTTP:
     def __init__(self, base_url: str) -> None:
         self._base_url = base_url.rstrip("/")
 
-    def upload_image(self, source: Path, name: str) -> None:
-        upload = source.with_name(name)
+    def upload_image(self, source: Path, name: str, subfolder: str = "") -> None:
+        upload = source.with_name(Path(name).name)
         upload.write_bytes(source.read_bytes())
         try:
             body, content_type = _multipart(
-                {"type": "input", "overwrite": "true"}, "image", upload
+                {
+                    "type": "input",
+                    "overwrite": "true",
+                    "subfolder": subfolder,
+                },
+                "image",
+                upload,
             )
             request = urllib.request.Request(
                 f"{self._base_url}/upload/image",
@@ -295,6 +381,19 @@ class ComfyHTTP:
                 raise RuntimeError("ComfyUI returned an unexpected input filename")
         finally:
             upload.unlink(missing_ok=True)
+
+    def health(self) -> None:
+        with urllib.request.urlopen(
+            f"{self._base_url}/system_stats", timeout=30
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError("ComfyUI health-check failed")
+
+    def archive(self, job_id: str, source: Path, result: Path) -> None:
+        now = datetime.now(timezone.utc)
+        subfolder = f"{now.year}/{now.isocalendar().week:02d}/{job_id}"
+        self.upload_image(source, f"source{source.suffix.lower()}", subfolder)
+        self.upload_image(result, "result.mp4", subfolder)
 
     def download_output(self, filename: str, destination: Path) -> None:
         query = urllib.parse.urlencode({"filename": filename, "type": "output"})
@@ -323,12 +422,18 @@ def _make_plan(llm: LLMClient, topic: str) -> tuple[str, str]:
 def build_worker(settings: Settings, db: Database) -> MVPWorker:
     if settings.telegram_bot_token is None or settings.telegram_chat_id is None:
         raise ValueError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be in .env")
+    if settings.comfyui_workflow_sha256 is None:
+        raise ValueError("COMFYUI_WORKFLOW_SHA256 must be in .env")
     telegram = TelegramHTTP(settings.telegram_bot_token.get_secret_value())
     comfy = ComfyHTTP(settings.comfyui_server_url)
     llm = LLMClient(settings)
     work_dir = Path(settings.telegram_mvp_dir)
 
     def submit(job_id: str, image: Path, prompt: str) -> None:
+        assert_workflow_checksum(
+            Path(settings.comfyui_workflow_template),
+            settings.comfyui_workflow_sha256,
+        )
         input_name = f"telegram_{job_id}{image.suffix.lower() or '.jpg'}"
         comfy.upload_image(image, input_name)
         workflow = render_workflow(
@@ -366,6 +471,17 @@ def build_worker(settings: Settings, db: Database) -> MVPWorker:
         submit=submit,
         poll=lambda: poll_once(db, settings),
         download_video=comfy.download_output,
+        health_check=comfy.health,
+        store_on_node1=comfy.archive,
+        delivery_chat_ids=frozenset(
+            admin_id
+            for admin_id in (
+                settings.telegram_admin_id_1,
+                settings.telegram_admin_id_2,
+                settings.telegram_chat_id,
+            )
+            if admin_id is not None
+        ),
     )
 
 
