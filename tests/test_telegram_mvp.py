@@ -208,6 +208,41 @@ def test_worker_is_idempotent_and_advances_one_stage_per_tick(
     assert len(telegram.sent) == 2
 
 
+def test_delivery_failure_preserves_node1_path_and_reports_reason(
+    tmp_path: Path,
+) -> None:
+    db = Database(str(tmp_path / "mvp.db"))
+    db.init_schema()
+    telegram = _Telegram()
+    db.upsert_job(
+        "tg-42",
+        "done",
+        file_path="node1/output/video.mp4",
+        source_path="node1/input/photo.jpg",
+    )
+
+    def download(_filename: str, destination: Path) -> None:
+        destination.write_bytes(b"\x00\x00\x00\x18ftypisomvideo")
+
+    def fail_send(_chat_id: int, _video: Path, _caption: str) -> None:
+        raise RuntimeError("file too large")
+
+    telegram.send_video = fail_send  # type: ignore[method-assign]
+    worker = MVPWorker(
+        db, telegram, 101, tmp_path / "work",
+        lambda _topic: ("s", "p"), lambda *_: None, lambda: None, download,
+        delivery_chat_ids=frozenset({101, 202}),
+    )
+
+    result = worker.run_once()
+
+    assert result == {"stage": "delivery_failed", "job_id": "tg-42"}
+    job = db.fetch_job("tg-42")
+    assert job is not None and job["file_path"] == "node1/output/video.mp4"
+    assert job["status"] == "delivery_failed"
+    assert "file too large" not in json.dumps(dict(job))
+
+
 def test_invalid_photo_does_not_create_job_or_spend_attempt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
