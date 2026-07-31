@@ -125,6 +125,7 @@ class TaskQueue:
         *,
         health: Callable[[], bool] = lambda: True,
         cancel_render: Callable[[str], None] = lambda _job_id: None,
+        generation_allowed: Callable[[], bool] = lambda: True,
     ) -> dict[str, str]:
         jobs = self._jobs()
         active = next(
@@ -171,6 +172,8 @@ class TaskQueue:
         )
         if queued is None:
             return {"stage": "idle"}
+        if not generation_allowed():
+            return {"stage": "blocked_disk", "job_id": str(queued["job_id"])}
         return self._submit(queued, now, submit)
 
     def _submit(

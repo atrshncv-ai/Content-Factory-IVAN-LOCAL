@@ -91,6 +91,12 @@
       "phase": "Hermes Content Factory MVP",
       "description": "Фото и генерация по утверждённому плану",
       "passes": true
+    },
+    {
+      "id": "MVP-07",
+      "phase": "Hermes Content Factory MVP",
+      "description": "Круглосуточная эксплуатация и сохранность",
+      "passes": true
     }
   ]
 }

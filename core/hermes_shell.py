@@ -6,6 +6,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -100,6 +101,7 @@ class HermesShell:
         task_queue: TaskQueue | None = None,
         weekly_plan: WeeklyPlanController | None = None,
         scheduled_plan: ScheduledPlan | None = None,
+        status_provider: Callable[[], str] | None = None,
     ) -> None:
         self._admin_ids = admin_ids
         self._state_path = state_path
@@ -108,6 +110,7 @@ class HermesShell:
         self._task_queue = task_queue
         self._weekly_plan = weekly_plan
         self._scheduled_plan = scheduled_plan
+        self._status_provider = status_provider
 
     def handle(self, update: dict[str, Any]) -> str | None:
         event = self._event(update)
@@ -162,6 +165,8 @@ class HermesShell:
                 except RuntimeError as error:
                     return str(error)
         if command == "/status":
+            if self._status_provider is not None:
+                return self._status_provider()
             response = (
                 "Hermes работает.\n"
                 f"Активный OpenCode Zen ключ: №{self._active_key_number}.\n"

@@ -56,6 +56,14 @@ CREATE TABLE IF NOT EXISTS metrics (
     reach        INTEGER NOT NULL DEFAULT 0,
     collected_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT NOT NULL DEFAULT (datetime('now')),
+    telegram_id INTEGER NOT NULL,
+    action      TEXT NOT NULL,
+    target      TEXT NOT NULL
+);
 """
 
 # Колонки, добавленные после первой версии схемы. CREATE TABLE IF NOT EXISTS
@@ -132,6 +140,7 @@ class Database:
 
     def log(self, level: str, agent: str, message: str) -> int:
         """Пишет запись в журнал. Returns: id созданной строки."""
+        message = self._safe_log_message(message)
         with self._lock, self._conn:
             cur = self._conn.execute(
                 "INSERT INTO logs (level, agent, message) VALUES (?, ?, ?)",
@@ -146,6 +155,34 @@ class Database:
                 "SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)
             )
             return list(cur.fetchall())
+
+    @staticmethod
+    def _safe_log_message(message: str) -> str:
+        """Не допускает значения секретов и полные промпты в техжурнал."""
+        lowered = message.lower()
+        if any(word in lowered for word in ("token=", "secret=", "prompt=")):
+            return "чувствительные технические данные скрыты"
+        return message
+
+    def prune_logs(self, days: int = 30) -> int:
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "DELETE FROM logs WHERE ts < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+        return cur.rowcount
+
+    def audit(self, telegram_id: int, action: str, target: str) -> int:
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO audit (telegram_id, action, target) VALUES (?, ?, ?)",
+                (telegram_id, action, target),
+            )
+        return cur.lastrowid or 0
+
+    def fetch_audit(self) -> list[sqlite3.Row]:
+        with self._lock:
+            return list(self._conn.execute("SELECT * FROM audit ORDER BY id DESC"))
 
     # --- Медиа-задания (Node 1) -------------------------------------------------
 

@@ -227,7 +227,7 @@ def test_delivery_failure_preserves_node1_path_and_reports_reason(
     def fail_send(_chat_id: int, _video: Path, _caption: str) -> None:
         raise RuntimeError("file too large")
 
-    telegram.send_video = fail_send  # type: ignore[method-assign]
+    telegram.send_video = fail_send  # type: ignore[assignment]
     worker = MVPWorker(
         db, telegram, 101, tmp_path / "work",
         lambda _topic: ("s", "p"), lambda *_: None, lambda: None, download,

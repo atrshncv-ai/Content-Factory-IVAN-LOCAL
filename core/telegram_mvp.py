@@ -262,7 +262,21 @@ class MVPWorker:
             None,
         )
         if done is not None:
-            self._deliver(done)
+            try:
+                self._deliver(done)
+            except Exception as error:
+                self._db.upsert_job(str(done["job_id"]), "delivery_failed")
+                send_message = getattr(self._telegram, "send_message", None)
+                if callable(send_message):
+                    reason = type(error).__name__
+                    node1_path = str(done["file_path"])
+                    for chat_id in sorted(self._delivery_chat_ids):
+                        send_message(
+                            chat_id,
+                            f"{done['job_id']}: Telegram-файл не доставлен "
+                            f"({reason}). Результат сохранён на Node 1: {node1_path}",
+                        )
+                return {"stage": "delivery_failed", "job_id": str(done["job_id"])}
             return {"stage": "delivered", "job_id": str(done["job_id"])}
 
         generating = next(
