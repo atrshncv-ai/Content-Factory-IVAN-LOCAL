@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,34 @@ COMMANDS = {
     "/cancel": "Отменить задачу",
 }
 
+PROFILE_FIELDS = (
+    ("brand", "бренд", True),
+    ("niche", "нишу", True),
+    ("audience", "аудиторию", True),
+    ("products", "продукты", False),
+    ("geography", "географию", False),
+    ("tone", "тон", True),
+    ("goals", "цели", False),
+    ("excluded_topics", "нежелательные темы", False),
+    ("timezone", "часовой пояс", True),
+)
+PROFILE_LABELS = {
+    key: label.removesuffix("ю").capitalize()
+    for key, label, _required in PROFILE_FIELDS
+}
+PROFILE_LABELS.update(
+    {
+        "brand": "Бренд",
+        "niche": "Ниша",
+        "audience": "Аудитория",
+        "geography": "География",
+        "tone": "Тон",
+        "goals": "Цели",
+        "excluded_topics": "Нежелательные темы",
+        "timezone": "Часовой пояс",
+    }
+)
+
 
 class ShellConfig(BaseSettings):
     """Секреты и runtime-пути оболочки, загружаемые только из окружения."""
@@ -29,6 +58,7 @@ class ShellConfig(BaseSettings):
     opencode_zen_api_key_1: SecretStr | None = None
     opencode_zen_api_key_2: SecretStr | None = None
     hermes_state_path: Path | None = None
+    hermes_knowledge_path: Path | None = None
 
     @model_validator(mode="after")
     def require_distinct_admins(self) -> ShellConfig:
@@ -61,48 +91,198 @@ class HermesShell:
         admin_ids: frozenset[int],
         state_path: Path,
         active_key_number: int = 0,
+        knowledge_path: Path | None = None,
     ) -> None:
         self._admin_ids = admin_ids
         self._state_path = state_path
         self._active_key_number = active_key_number
+        self._knowledge_path = knowledge_path
 
     def handle(self, update: dict[str, Any]) -> str | None:
         event = self._event(update)
         if event is None:
             return None
-        event_id, user_id, command = event
+        event_id, user_id, value = event
         if user_id not in self._admin_ids:
             return None
 
-        processed = self._load_processed()
+        state = self._load_state()
+        processed = {str(item) for item in state.get("processed_events", [])}
         if event_id in processed:
             return None
         processed.add(event_id)
-        self._save_processed(processed)
+        state["processed_events"] = sorted(processed)
 
-        if command is None:
-            return "Этот сценарий пока не настроен."
+        response: str | None
+        if event_id.startswith("callback:"):
+            response = self._handle_callback(value, user_id, state)
+        else:
+            response = self._handle_message(value, user_id, state)
+        self._save_state(state)
+        return response
+
+    def _handle_message(
+        self,
+        text: str,
+        user_id: int,
+        state: dict[str, Any],
+    ) -> str | None:
+        command = text.strip().split(maxsplit=1)[0].split("@", maxsplit=1)[0]
+        if command == "/setup":
+            profile = state.get("brand_profile")
+            if isinstance(profile, dict):
+                return self._profile_summary(profile)
+            state["setup"] = {"field": 0, "values": {}, "user_id": user_id}
+            return "Настройка профиля. Введите название бренда."
+        if command == "/plan" and not self._profile_complete(state):
+            return "Сначала заполните обязательный профиль бренда через /setup."
         if command == "/status":
             return (
                 "Hermes работает.\n"
                 f"Активный OpenCode Zen ключ: №{self._active_key_number}.\n"
                 "Telegram-оболочка: готова."
             )
-        if command in COMMANDS:
+        if command.startswith("/") and command in COMMANDS:
             return f"Сценарий {command} пока не настроен."
-        return None
+        setup = state.get("setup")
+        if not isinstance(setup, dict):
+            return None
+        return self._accept_setup_value(text.strip(), user_id, setup, state)
+
+    def _handle_callback(
+        self,
+        data: str,
+        user_id: int,
+        state: dict[str, Any],
+    ) -> str:
+        parts = data.split(":")
+        if len(parts) != 4 or parts[:2] != ["setup", "edit"]:
+            return "Этот сценарий пока не настроен."
+        field = parts[2]
+        profile = state.get("brand_profile")
+        try:
+            revision = int(parts[3])
+        except ValueError:
+            revision = -1
+        if (
+            not isinstance(profile, dict)
+            or revision != profile.get("revision")
+            or field not in PROFILE_LABELS
+        ):
+            return "Профиль уже изменён. Откройте /setup заново."
+        state["setup"] = {
+            "edit": field,
+            "revision": revision,
+            "user_id": user_id,
+        }
+        return f"Введите новое значение поля «{PROFILE_LABELS[field].lower()}»."
+
+    def _accept_setup_value(
+        self,
+        value: str,
+        user_id: int,
+        setup: dict[str, Any],
+        state: dict[str, Any],
+    ) -> str:
+        edit = setup.get("edit")
+        if isinstance(edit, str):
+            return self._save_edit(edit, value, user_id, setup, state)
+
+        index = int(setup.get("field", 0))
+        key, label, required = PROFILE_FIELDS[index]
+        skipped = value.lower() in {"/skip", "-"}
+        if required and skipped:
+            return f"Поле «{PROFILE_LABELS[key].lower()}» обязательно. Введите значение."
+        if key == "timezone" and not skipped and not self._valid_timezone(value):
+            return "Неизвестный часовой пояс. Например: Europe/Samara."
+
+        values = setup.setdefault("values", {})
+        assert isinstance(values, dict)
+        values[key] = "" if skipped else value
+        index += 1
+        if index < len(PROFILE_FIELDS):
+            setup["field"] = index
+            next_key, next_label, next_required = PROFILE_FIELDS[index]
+            suffix = "" if next_required else " или /skip"
+            return f"Введите {next_label}{suffix}."
+
+        profile = dict(values)
+        profile.update({"revision": 1, "audit": {"updated_by": user_id}})
+        state["brand_profile"] = profile
+        state.pop("setup", None)
+        if self._knowledge_path is not None:
+            self._knowledge_path.mkdir(parents=True, exist_ok=True)
+        return "Профиль бренда сохранён (ревизия 1)."
+
+    def _save_edit(
+        self,
+        field: str,
+        value: str,
+        user_id: int,
+        setup: dict[str, Any],
+        state: dict[str, Any],
+    ) -> str:
+        profile = state.get("brand_profile")
+        if (
+            not isinstance(profile, dict)
+            or profile.get("revision") != setup.get("revision")
+        ):
+            state.pop("setup", None)
+            return "Профиль уже изменён. Откройте /setup заново."
+        required = next(item[2] for item in PROFILE_FIELDS if item[0] == field)
+        skipped = value.lower() in {"/skip", "-"}
+        if required and skipped:
+            return f"Поле «{PROFILE_LABELS[field].lower()}» обязательно. Введите значение."
+        if field == "timezone" and not self._valid_timezone(value):
+            return "Неизвестный часовой пояс. Например: Europe/Samara."
+        profile[field] = "" if skipped else value
+        profile["revision"] = int(profile["revision"]) + 1
+        profile["audit"] = {"updated_by": user_id}
+        state.pop("setup", None)
+        return f"Профиль бренда сохранён (ревизия {profile['revision']})."
 
     @staticmethod
-    def _event(update: dict[str, Any]) -> tuple[str, int, str | None] | None:
+    def _valid_timezone(value: str) -> bool:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError:
+            return False
+        return True
+
+    @staticmethod
+    def _profile_complete(state: dict[str, Any]) -> bool:
+        profile = state.get("brand_profile")
+        return isinstance(profile, dict) and all(
+            profile.get(key) for key, _label, required in PROFILE_FIELDS if required
+        )
+
+    @staticmethod
+    def _profile_summary(profile: dict[str, Any]) -> str:
+        lines = ["Актуальный профиль бренда:"]
+        lines.extend(
+            f"{PROFILE_LABELS[key]}: {profile.get(key) or '—'}"
+            for key, _label, _required in PROFILE_FIELDS
+        )
+        lines.append(f"Ревизия: {profile['revision']}")
+        lines.append("Выберите поле для изменения.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _event(update: dict[str, Any]) -> tuple[str, int, str] | None:
         callback = update.get("callback_query")
         if isinstance(callback, dict):
             sender = callback.get("from")
             callback_id = callback.get("id")
-            if isinstance(sender, dict) and callback_id is not None:
+            data = callback.get("data")
+            if (
+                isinstance(sender, dict)
+                and callback_id is not None
+                and isinstance(data, str)
+            ):
                 return (
                     f"callback:{callback_id}",
                     int(sender["id"]),
-                    None,
+                    data,
                 )
 
         message = update.get("message")
@@ -113,25 +293,21 @@ class HermesShell:
         text = message.get("text")
         if not isinstance(sender, dict) or not isinstance(text, str):
             return None
-        command = text.strip().split(maxsplit=1)[0].split("@", maxsplit=1)[0]
-        return f"update:{update_id}", int(sender["id"]), command
+        return f"update:{update_id}", int(sender["id"]), text
 
-    def _load_processed(self) -> set[str]:
+    def _load_state(self) -> dict[str, Any]:
         if not self._state_path.exists():
-            return set()
-        data = json.loads(self._state_path.read_text(encoding="utf-8"))
-        values = data.get("processed_events", [])
-        return {str(value) for value in values}
+            return {}
+        data: dict[str, Any] = json.loads(
+            self._state_path.read_text(encoding="utf-8")
+        )
+        return data
 
-    def _save_processed(self, processed: set[str]) -> None:
+    def _save_state(self, state: dict[str, Any]) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._state_path.with_suffix(f"{self._state_path.suffix}.new")
         temporary.write_text(
-            json.dumps(
-                {"processed_events": sorted(processed)},
-                ensure_ascii=False,
-                indent=2,
-            )
+            json.dumps(state, ensure_ascii=False, indent=2)
             + "\n",
             encoding="utf-8",
         )
@@ -148,6 +324,7 @@ def main() -> int:
         config.admin_ids,
         config.hermes_state_path,
         config.active_key_number,
+        config.hermes_knowledge_path,
     ).handle(update)
     if response is not None:
         print(response)

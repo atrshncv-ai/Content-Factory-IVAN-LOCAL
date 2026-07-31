@@ -116,7 +116,9 @@ def test_status_is_safe_and_other_commands_are_pending(tmp_path: Path) -> None:
         "Активный OpenCode Zen ключ: №2.\n"
         "Telegram-оболочка: готова."
     )
-    assert pending == "Сценарий /plan пока не настроен."
+    assert pending == (
+        "Сначала заполните обязательный профиль бренда через /setup."
+    )
     serialized = json.dumps({"status": status}, ensure_ascii=False).lower()
     for forbidden in ("token", ".env", "secret", "prompt", "test-value-1"):
         assert forbidden not in serialized
