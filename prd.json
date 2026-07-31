@@ -79,6 +79,12 @@
       "phase": "Hermes Content Factory MVP",
       "description": "Очередь, проверка результата, отмена и повтор",
       "passes": true
+    },
+    {
+      "id": "MVP-05",
+      "phase": "Hermes Content Factory MVP",
+      "description": "Веб-аналитика и недельный план",
+      "passes": true
     }
   ]
 }
