@@ -303,3 +303,8 @@ python -m core.orchestrator            # один шаг Kanban на задан�
 - Покадровый QC рендеренного видео (ffprobe/vision) — закрыть разрыв auto-approve.
 - Полное планирование автопубликации и гарантированный скрейпинг трендов.
 - Очередь из нескольких рендер-задач за пределами одного GPU.
+
+## License / Лицензия
+
+Released under the MIT License. See [LICENSE](LICENSE).
+Проект распространяется по лицензии MIT. См. [LICENSE](LICENSE).
